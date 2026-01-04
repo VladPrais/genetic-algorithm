@@ -62,22 +62,27 @@ class BaseGeneration
 		evaluate(evaluate)
 	{	
 		init();
-		compute_fitness();
 	}
 
-	void compute_fitness(void)
+	size_t compute_fitness(void)
 	{
+		size_t evaluated_counter = 0;
+
 		for(Individual &i: population)
 		{
 			if(!i.valid)
 			{
 				i.fitness = evaluate(i);
 				i.valid = true;
+
+				evaluated_counter++;
 			}
 		}
 		
 		iter_b = std::max_element(population.begin(), population.end(), comparator);
 		iter_w = std::min_element(population.begin(), population.end(), comparator);
+
+		return evaluated_counter;
 	}
 
 	void set(std::vector<Individual> &pop)
@@ -98,35 +103,6 @@ class BaseGeneration
 	Individual& operator[](size_t index)
 	{
 		return population[index];
-	}
-
-	void print(Individual &i)
-	{
-		for(auto g: i.genes)
-		{
-			std::cout << g << ' ';
-		}
-		std::cout << "   " << i.fitness << std::endl;
-	}
-
-	void print(void)
-	{
-		int c = 0;
-
-		for(Individual i: population)
-		{
-			std::cout << c << ")\t";
-			print(i);
-			c++;
-		}
-		std::cout << "The best is" << std::endl;
-		std::cout << std::distance(population.begin(), iter_b) << ")\t";
-		print(*iter_b);
-
-		std::cout << "The worst is" << std::endl;
-		std::cout << std::distance(population.begin(), iter_w) << ")\t";
-		print(*iter_w);
-		std::cout << std::endl;
 	}
 };
 
@@ -257,15 +233,25 @@ class GeneticAlgorithm
 		dist(0, pop_size - 1)
 	{	}
 
-	Individual* alg(void)
+	Individual alg(void)
 	{
 		BaseGeneration<GeneType, FitnessType> base_gen(pop_size, generator, comparator, evaluate);
+		size_t evaluated_counter = base_gen.compute_fitness();
 
-		std::cout << "iter\tmin\tmax" << std::endl;
+		std::cout << "iter\tevals\tmin\tmax" << std::endl;
 
-		std::cout << 0 << '\t' << base_gen.iter_w->fitness << '\t' << base_gen.iter_b->fitness << std::endl;
+		std::cout << 0 << '\t' << evaluated_counter << '\t' << base_gen.iter_w->fitness << '\t' << base_gen.iter_b->fitness << std::endl;
 
-		for(size_t iter = 0; iter < max_generations; iter++)
+		bool cond = stop_cond(*base_gen.iter_b);
+
+		if(cond)
+		{
+			std::cout << "succes!" << std::endl;
+
+			return *base_gen.iter_b;
+		}
+
+		for(size_t iter = 1; iter <= max_generations; iter++)
 		{
 			std::vector<Individual> aspirants = sel_operator(base_gen.get());
 			base_gen.set(aspirants);
@@ -274,20 +260,21 @@ class GeneticAlgorithm
 
 			mutate_operator(base_gen.get());
 			
-			base_gen.compute_fitness();
-			base_gen.print();
+			evaluated_counter = base_gen.compute_fitness();
 
-			bool cond = stop_cond(*base_gen.iter_b);
+			std::cout << iter << '\t' << evaluated_counter << '\t' << base_gen.iter_w->fitness << '\t' << base_gen.iter_b->fitness << std::endl;
+
+			cond = stop_cond(*base_gen.iter_b);
 
 			if(cond)
 			{
 				std::cout << "succes!" << std::endl;
 
-				return &*base_gen.iter_b;
+				return *base_gen.iter_b;
 			}
 		}
 
-		return nullptr;
+		return *base_gen.iter_b;
 	}
 };
 

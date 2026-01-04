@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <iostream>
+#include <numeric>
 #include <random>
 #include <vector>
 
@@ -13,7 +14,7 @@ typedef std::vector<int> GeneType;
 typedef int FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
-const size_t LEN_GENES = 20;
+const size_t LEN_GENES = 100;
 
 Individual generator(void)
 {
@@ -93,18 +94,25 @@ void mut_func(Individual &i)
 	i.genes[p] = !i.genes[p];
 }
 
+std::ostream& operator<<(std::ostream &stream, const Individual &i)
+{
+	for(auto g: i.genes)
+	{
+		stream << g << ' ';
+	}
+	stream << "   " << i.fitness;
+
+	return stream;
+}
+
 int main(void)
 {
-	int pop_size = 100, max_generations = 50, elite = 2;
+	int pop_size = 300, max_generations = 1000, elite = 5;
 	double cxpb = 0.7, mtpb = 0.1;
-
-	ga::BaseGeneration<GeneType, FitnessType> base_gen(pop_size, generator, comp, evaluate);
-
-	Individual i = sel_func(base_gen.get());
 
 	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, cxpb, mtpb, elite, generator, comp, evaluate, stop_cond, sel_func, mate_func, mut_func);
 
-	g_alg.alg();
+	Individual v = g_alg.alg();
 
 	return 0;
 }
