@@ -1,183 +1,317 @@
-
+#include <algorithm>
+#include <fstream>
+#include <functional>
 #include <iostream>
+#include <numeric>
 #include <random>
+#include <string>
 #include <vector>
 
-using std::cout;
-using std::endl;
-using std::random_device;
-using std::mt19937;
-using std::uniform_int_distribution;
-using std::uniform_real_distribution;
-using std::vector;
+std::random_device rd;
+std::mt19937 engine(rd());
+std::uniform_real_distribution PB(0.0, 1.0);
 
-random_device rd;
-mt19937 engine(rd());
-
-struct individual
+class Individual
 {
-	vector<int> genes;
-	double fitness;
-	double weight; // to initialize optimization problem (max or min), you know
+	public:
 
-	individual(double weight)
-	{
-		this -> weight = weight;
-	}
+	std::vector<int> genes;
+	int fitness;
 
-	bool operator > (const individual &other)
-	{
-		return this -> fitness * this -> weight > other.fitness * other.weight;
-	}
+	Individual() = default;
 
-	bool operator < (const individual &other)
+	Individual(std::vector<int> genes): genes(genes)
+	{	}
+
+	bool operator<(const Individual &I) const
 	{
-		return this -> fitness * this -> weight < other.fitness * other.weight;
+		return this->fitness < I.fitness;
 	}
-	
 };
 
-/*
- * the idea is selecting the most fit individual and initialize new aspirant population
- */
-vector<individual> tournament(vector<individual> &pop, int tournsize)
+std::ostream& operator<<(std::ostream &stream, Individual &I)
 {
-        vector<individual> aspirants;
-        int pop_size = pop.size();
-        uniform_int_distribution dist(0, pop_size - 1);
-
-        for(int i = 0; i < pop_size; i++){
-                int one = dist(engine);
-                for(int g = 0; g < tournsize - 1; g++){
-                        int another_one = dist(engine);
-                        one = pop[one] > pop[another_one] ? one : another_one;
-                }
-                aspirants.push_back(pop[one]);
-        }
-        return aspirants;
-}
-
-/*
- * we need to shuffle the genes of individuals
- */
-void crossover(vector<individual> &aspirants, double CXPB)
-{
-        int pop_size = aspirants.size(), len_gen = aspirants[0].genes.size();
-        uniform_real_distribution pb(0.0, 1.0);
-        uniform_int_distribution cross_dot(1, len_gen - 2);
-
-        for(int i = 0; i < pop_size - 1; i += 2){
-                if(pb(engine) < CXPB){
-                        int dot = cross_dot(engine);
-                        for(int g = 0; g < dot; g++){
-                                std::swap(aspirants[i].genes[g], aspirants[i + 1].genes[g]);
-                        }
-                }
-        }
-}
-
-/*
- * just let them mutate
- */
-void mutation(vector<individual> &offspring, double MTPB, double MGPB)
-{
-        int pop_size = offspring.size(), len_gen = offspring[0].genes.size();
-        uniform_real_distribution pb(0.0, 1.0);
-        uniform_int_distribution gene(0, len_gen - 1);
-
-        for(int i = 0; i < pop_size; i++){
-                if(pb(engine) < MTPB){
-                        for(int g = 0; g < len_gen; g++){
-                                if(pb(engine) < MGPB){
-					// inverse mutation
-                                        offspring[i].genes[g] = !offspring[i].genes[g];
-                                }
-                        }
-                }
-        }
-}
-
-double stat(vector<individual> &pop)
-{
-        int pop_size = pop.size();
-        double min = pop[0].fitness, max = pop[0].fitness, avg = pop[0].fitness;
-
-        for(int i = 1; i < pop_size; i++){
-                min = pop[i].fitness < min ? pop[i].fitness : min;
-                max = pop[i].fitness > max ? pop[i].fitness : max;
-                avg += pop[i].fitness;
-        }
-        avg /= pop_size;
-        cout << min << '\t' << max << '\t' << avg << endl;
-	vector<double> stat;
-
-	return max;
-}
-
-double evalute(individual &individ)
-{
-	double sum = 0;
-
-	for(int g = 0; g < individ.genes.size(); g++){
-		sum += individ.genes[g];
+	for(auto g: I.genes)
+	{
+		stream << g << ' ';
 	}
+	stream << " (" << I.fitness << ')';
 
-	return sum;
+	return stream;
 }
 
-void compute_fitness(vector<individual> &population)
+std::vector<Individual> selection(std::vector<Individual> &population, int tourn_size)
 {
 	int pop_size = population.size();
+	std::vector<Individual> aspirants;
 
-	for(int i = 0; i < pop_size; i++){
-		population[i].fitness= evalute(population[i]);
+	std::uniform_int_distribution dist(0, pop_size - 1);
+
+	for(int i = 0; i < pop_size; i++)
+	{
+		std::vector<Individual> temp;
+		
+		for(int j = 0; j < tourn_size; j++)
+		{
+			int n = dist(engine);
+			temp.push_back(population[n]);
+		}
+
+		auto best = std::max_element(temp.begin(), temp.end());
+		int ind_best = std::distance(temp.begin(), best);
+
+		aspirants.push_back(temp[ind_best]);
 	}
+
+	return aspirants;
+}
+
+void cx_oper(Individual &I1, Individual &I2)
+{
+	int len_gen = I1.genes.size();
+	std::uniform_int_distribution dist(0, len_gen - 1);
+
+	int dot = dist(engine);
+
+	for(int i = 0; i < dot; i++)
+	{
+		std::swap(I1.genes[i], I2.genes[i]);
+	}
+}
+
+void crossover(std::vector<Individual> &aspirants, double CXPB)
+{
+	int pop_size = aspirants.size();
+
+	for(int i = 0; i < pop_size; i += 2){
+		
+		double pb = PB(engine);
+
+		if(pb < CXPB)
+		{
+			cx_oper(aspirants[i], aspirants[i + 1]);
+		}
+	}
+}
+
+void mt_oper(Individual &I)
+{
+	int len_gen = I.genes.size();
+	std::uniform_int_distribution dist(0, len_gen - 1);
+
+	int dot = dist(engine);
+
+	I.genes[dot] = !I.genes[dot];
+}
+
+void mutation(std::vector<Individual> &child, double MTPB)
+{
+	int pop_size = child.size();
+
+	for(int i = 0; i < pop_size; i++)
+	{
+		double pb = PB(engine);
+
+		if(pb < MTPB)
+		{
+			mt_oper(child[i]);
+		}
+	}
+}
+
+Individual init(int len_genes)
+{
+	std::vector<int> genes;
+
+	std::uniform_int_distribution dist(0, 1);
+
+	for(int i = 0; i < len_genes; i++)
+	{
+		genes.push_back(dist(engine));
+	}
+
+	Individual I(genes);
+
+	return I;
+}
+
+double fitness(Individual &I)
+{
+	return std::accumulate(I.genes.begin(), I.genes.end(), 0);
+}
+
+void fitness_pop(std::vector<Individual> &population)
+{
+	for(auto &i: population)
+	{
+		i.fitness = fitness(i);
+	}
+}
+
+std::vector<double> analysis(std::vector<Individual> &population)
+{
+	auto min_it = std::min_element(population.begin(), population.end());
+	auto max_it = std::max_element(population.begin(), population.end());
+
+	int ind_min = std::distance(population.begin(), min_it);
+	int ind_max = std::distance(population.begin(), max_it);
+
+	double min = population[ind_min].fitness;
+	double max = population[ind_max].fitness;
+
+	double avg = 0.0;
+	for(auto i: population)
+	{
+		avg += i.fitness;
+	}
+	avg /= population.size();
+
+	std::vector<double> results{min, max, avg};
+
+	return results;
+}
+
+std::vector<std::vector<double>> ga(int pop_size, int len_genes, int generations, int tourn_size, double CXPB, double MTPB)
+{
+	std::vector<Individual> population(pop_size);
+
+	auto _init = std::bind(init, len_genes);
+	std::generate(population.begin(), population.end(), _init);
+	fitness_pop(population);
+
+	std::cout << "generation  min  max  avg" << std::endl;
+
+	std::vector<double> results = analysis(population);
+	char space = '\t';
+
+	std::vector<double> MIN, MAX, AVG;
+
+	std::cout << 0 << space << results[0] << space << results[1] << space << results[2] << std::endl;
+
+	MIN.push_back(results[0]);
+	MAX.push_back(results[1]);
+	AVG.push_back(results[2]);
+
+	for(int i = 1; i < generations + 1; i++)
+	{
+		population = selection(population, tourn_size);
+		crossover(population, CXPB);
+		mutation(population, MTPB);
+		fitness_pop(population);
+
+		results = analysis(population);
+
+		std::cout << i << space << results[0] << space << results[1] << space << results[2] << std::endl;
+
+		MIN.push_back(results[0]);
+		MAX.push_back(results[1]);
+		AVG.push_back(results[2]);
+
+		if(results[1] == len_genes)
+		{
+			break;
+		}
+	}
+
+	std::vector<std::vector<double>> RESULTS{MIN, MAX, AVG};
+
+	return RESULTS;
 }
 
 int main(void)
 {
+
+	Individual i1 = init(8), i2 = init(8);
+	i1.fitness = fitness(i1);
+	i2.fitness = fitness(i2);
+
+	std::cout << i1 << std::endl << i2 << std::endl;
+
+	cx_oper(i1, i2);
+	i1.fitness = fitness(i1);
+	i2.fitness = fitness(i2);
+
+	std::cout << i1 << std::endl << i2 << std::endl;
+
+	mt_oper(i1);
+	i1.fitness = fitness(i1);
+	std::cout << i1 << std::endl;
 	/*
-	 * genetic algorithm parameters
+	 * standart
 	 */
-        int max_eras = 10000, len_genes = 200, pop_size = 300, tournsize = 3;
-        double CXPB = 0.7, MTPB = 0.2, MGPB = 0.001;
-
-        uniform_int_distribution zero_or_one(0, 1);
-
-        vector<individual> population;
-
-	/*
-	 * initializing start population
-	 */
-        for(int i = 0; i < pop_size; i++){
-                individual individ(1.0);
-                for(int g = 0; g < len_genes; g++){
-                        individ.genes.push_back(zero_or_one(engine));
-                }
-                individ.fitness = evalute(individ);
-                population.push_back(individ);
-        }
-
-        cout << "iter\tmin\tmax\tavg" << endl;
-        cout << 0 << '\t';
-        stat(population);
-	double max = 0.0;
 
 	/*
-	 * kernel
-	 */
-	for(int g = 1; g < max_eras + 1; g++){
-		population = tournament(population, tournsize);
-		crossover(population, CXPB);
-		mutation(population, MTPB, MGPB);
-		compute_fitness(population);
-		cout << g << '\t';
+	int pop_size = 1000, len_genes = 300, generations = 10000, tourn_size = 3;
+	double CXPB = 0.7, MTPB = 0.1;
 
-		max = stat(population);
+	std::vector<std::vector<double>> results;
 
-		if(max == len_genes)
-			break;
+	results = ga(pop_size, len_genes, generations, tourn_size, CXPB, MTPB);
+	int size = results[0].size();
+
+	*/
+	/*
+	std::ofstream file("ga1.txt");
+	for(int i = 0; i < size; i++)
+	{
+		file << results[0][i] << ' ' << results[1][i] << ' ' << results[2][i] << std::endl;
 	}
+	file.close();
 
-        return 0;
+	*/
+	/*
+	 * increse tourn_size
+	 */
+/*
+	tourn_size = 9;
+
+	results = ga(pop_size, len_genes, generations, tourn_size, CXPB, MTPB);
+	size = results[0].size();
+
+	std::ofstream file2("ga2.txt");
+	for(int i = 0; i < size; i++)
+	{
+		file2 << results[0][i] << ' ' << results[1][i] << ' ' << results[2][i] << std::endl;
+	}
+	file2.close();
+*/
+	/*
+	 * increase MTPB
+	 */
+
+	/*
+	tourn_size = 3;
+	MTPB = 0.4;
+	results = ga(pop_size, len_genes, generations, tourn_size, CXPB, MTPB);
+	size = results[0].size();
+
+	std::ofstream file3("ga3.txt");
+	for(int i = 0; i < size; i++)
+	{
+		file3 << results[0][i] << ' ' << results[1][i] << ' ' << results[2][i] << std::endl;
+	}
+	file3.close();
+
+	*/
+	/*
+	 * increase CXPB
+	 */
+
+	/*
+	MTPB = 0.1;
+	CXPB = 0.9;
+
+	results = ga(pop_size, len_genes, generations, tourn_size, CXPB, MTPB);
+	size = results[0].size();
+
+	std::ofstream file4("ga4.txt");
+	for(int i = 0; i < size; i++)
+	{
+		file4 << results[0][i] << ' ' << results[1][i] << ' ' << results[2][i] << std::endl;
+	}
+	file4.close();
+
+	*/
+
+	return 0;
 }
