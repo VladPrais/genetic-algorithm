@@ -28,12 +28,6 @@ Individual generator(void)
 	return I;
 }
 
-// The function that allows to compare two Individuals. Crucial aspect because there is oprimization criterion (min or max).
-bool comp(Individual &i1, Individual &i2)
-{
-	return i1.fitness < i2.fitness;
-}
-
 // The function to get fitness value.
 FitnessType evaluate(Individual &i)
 {
@@ -58,9 +52,9 @@ bool stop_cond(Individual& i)
 }
 
 // The function that choose the one parent to mate. It will be ised in Selection operator of Genetic Algorithm
-Individual sel_func(std::vector<Individual> &population)
+Individual sel_func(const std::vector<Individual> &population, std::function<bool(const Individual&, const Individual&)> comparator)
 {
-	// Just one iter of Tournament Selection.
+	// Just one iteration of Tournament Selection.
 	int pop_size = population.size(), tourn_size = 3;
 	std::uniform_int_distribution getter(0, pop_size - 1);
 	std::vector<Individual> temp(tourn_size);
@@ -71,7 +65,9 @@ Individual sel_func(std::vector<Individual> &population)
 		temp[i] = population[p];
 	}
 
-	Individual best = *std::max_element(temp.begin(), temp.end(), comp);
+	// max_element searches max element in container using std::less
+	// but searches min element using std::greater
+	Individual best = *std::max_element(temp.begin(), temp.end(), comparator);
 
 	return best;
 }
@@ -118,7 +114,9 @@ int main(void)
 	int pop_size = 300, max_generations = 50, elite = 6;
 	double cxpb = 0.7, mtpb = 0.1;
 
-	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, cxpb, mtpb, elite, generator, comp, evaluate, stop_cond, sel_func, mate_func, mut_func);
+	// std::less for maximizing
+	// std::greater for minimizing
+	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, cxpb, mtpb, generator, std::less<Individual>(), evaluate, stop_cond, sel_func, mate_func, mut_func);
 
 	Individual v = g_alg.alg();
 
