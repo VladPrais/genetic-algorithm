@@ -68,7 +68,9 @@ const double a = 1.0, b = 2.0; // bounds
 vector<double> Y0{1.0, 1.0, 2.0}, X(N); // initial conditions and x-nodes
 vector<vector<double>> SOLUTION(N, Y0); 
 
-typedef ga::BaseIndividual<vector<double>, double> Individual;
+typedef vector<double> GeneType;
+typedef double FitnessType;
+typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
 Individual generator(void)
 {
@@ -84,87 +86,10 @@ Individual generator(void)
 	return I;
 }
 
-Individual tourn_func(const vector<Individual> &population, std::function<bool(const Individual&, const Individual&)> comparator)
-{
-	int tourn_size = 3, pop_size = population.size();
-	std::uniform_int_distribution dist(0, pop_size - 1);
-	vector<Individual> temp(tourn_size);
-
-	for(int i = 0; i < tourn_size; i++)
-	{
-		int k = dist(engine);
-		temp[i] = population[k];
-	}
-
-	Individual best = *std::max_element(temp.begin(), temp.end(), comparator);
-
-	return best;
-}
-
-void mate_func(Individual &i1, Individual &i2)
-{
-	std::uniform_int_distribution dist(0, LEN_GENES - 1);
-
-	int k = dist(engine);
-
-	for(int i = 0; i < k; i++)
-	{
-		std::swap(i1.genes[i], i2.genes[i]);
-	}
-}
-
-void mutate_func(Individual &i)
-{
-	std::uniform_int_distribution dist(0, LEN_GENES - 1);
-	double mt_range = 2.0;
-	std::uniform_real_distribution mut(-mt_range, mt_range);
-
-	int g = dist(engine);
-
-	i.genes[g] += mut(engine);
-}
-
-/*
-double func_1(double x)
-{
-	return 1.0 + 2.0 * x - 3.0 * x * x;
-}
-
-double func_2(double x)
-{
-	return -4.0 + 5.0 * x + 6.0 * x * x;
-}
-*/
-
 vector<double> func(double x, vector<double> y)
 {
 	vector<double> v{y[1], y[2], 2.0 * y[2] - 3.0 * y[1] + 4.0 * y[0]}; 
 	return v;
-}
-
-// the first three coefficients used by f1 function
-double a_func(Individual &i, double x)
-{
-	double s = 0.0;
-
-	for(int j = 0; j < LEN_GENES / 2; j++)
-	{
-		s += i.genes[j] * pow(x, j);
-	}
-
-	return s;
-}
-
-// the second three coefficients used by f2 function
-double b_func(Individual &i, double x)
-{
-	double s = 0.0;
-
-	for(int j = 0; j < 3; j++)
-	{
-		s += i.genes[j + 3] * pow(x, j);
-	}
-	return s;
 }
 
 vector<vector<double>> sol_func(Individual &i)
@@ -184,30 +109,52 @@ double evaluate(Individual &i)
 {
 	vector<vector<double>> sol = sol_func(i);
 
-	double error = 0.0;
+	double error = 0.0, err = 0.0;
 
 	for(int i = 0; i < N; i++)
 	{
 		for(int j = 0; j < Y0.size(); j++)
 		{
-			double err = SOLUTION[i][j] - sol[i][j];
+			err = SOLUTION[i][j] - sol[i][j];
 			error += err * err;
 		}
 	}
 
+	double c1 = i.genes[0];
+	double c2 = i.genes[1];
+	double c3 = i.genes[2];
+
+	if(c1 < 0)
+	{
+		err = std::abs(c1) * 10;
+		error += err;
+	}
+	if(c2 > 0)
+	{
+		err = std::abs(c2) * 10;
+		error += err;
+	}
+	if(c3 < 0)
+	{
+		err = std::abs(c3) * 10;
+		error += err;
+	}
+
+	/*
 	for(double g: i.genes)
 	{
 		double e = std::abs(g) - 5.0;
 		if(e > 0.0)
 			error += e * e;
 	}
+	*/
 
 	return error;
 }
 
 bool stop_cond(Individual &i)
 {
-	return i.fitness < 1e-5;
+	return i.fitness < 1e-4;
 }
 
 std::ostream& operator<<(std::ostream &stream, const Individual i)
@@ -221,6 +168,11 @@ std::ostream& operator<<(std::ostream &stream, const Individual i)
 	return stream;
 }
 
+bool comparator(const Individual &lhs, const Individual &rhs)
+{
+	return lhs.fitness< rhs.fitness;
+}
+
 int main(void)
 {
 	double h = (b - a) / (double)(N - 1);
@@ -232,13 +184,17 @@ int main(void)
 
 	SOLUTION = rk4(X, Y0, func);
 
-	double percent = 0.02;
-	int max_gen = 50, pop_size = 10000, elite = (int)(pop_size * percent);
-	double cxpb = 0.5, mtpb = 0.5;
+	int max_gen = 300, pop_size = 300, elite = 2, tourn_size = 3;
+	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.01, mu = 0.0, sigma = 2.0;
 
-	ga::GeneticAlgorithm<vector<double>, double> ga_alg(max_gen, pop_size, elite, cxpb, mtpb, generator, std::greater<Individual>(), evaluate, stop_cond, tourn_func, mate_func, mutate_func);
+	ga::tournament<Individual> selection(tourn_size);
+	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>);
+	auto mut = [mu, sigma](Individual &i, double mgpb, std::mt19937 &engine){ return ga::normal_mut<Individual>(i, mgpb, engine, mu, sigma); };
+	ga::mutation<Individual> mutation(mtpb, mgpb, mut);
 
-	Individual best = ga_alg.alg();
+	ga::GeneticAlgorithm<GeneType, FitnessType> ga_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+
+	Individual best = ga_alg();
 
 	std::cout << best << std::endl;
 

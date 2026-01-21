@@ -85,16 +85,16 @@ class BaseGeneration
 
 	Individual get_best(std::function<bool(const Individual&, const Individual&)> comparator)
 	{
-		auto iter_max = std::min_element(population.begin(), population.end(), comparator);
+		auto iter_best = std::min_element(population.begin(), population.end(), comparator);
 
-		return *iter_max;
+		return *iter_best;
 	}
 
 	Individual get_worst(std::function<bool(const Individual&, const Individual&)> comparator)
 	{
-		auto iter_min = std::max_element(population.begin(), population.end(), comparator);
+		auto iter_worst = std::max_element(population.begin(), population.end(), comparator);
 
-		return *iter_min;
+		return *iter_worst;
 	}
 };
 
@@ -102,13 +102,15 @@ template <typename GeneType, typename FitnessType>
 class GeneticAlgorithm
 {	
 	typedef BaseIndividual<GeneType, FitnessType> Individual;
+	typedef std::vector<Individual> Population;
 
 	typedef std::function<Individual(void)> Generator;
 	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
 	typedef std::function<FitnessType(Individual&)> Eval;
 	typedef std::function<bool(Individual&)> StopCond;
 
-	typedef std::function<void(std::vector<Individual>&, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(Population&, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(Population&, std::mt19937&)> Changer;
 
 	std::random_device rd;
 	std::mt19937 engine;
@@ -118,24 +120,39 @@ class GeneticAlgorithm
 	int max_gen;
 	int pop_size;
 	int elite;
+	/*
+	double cxpb;
+	double mtpb;
+	double mgpb;
+	*/
 
 	Generator generator;
 	Comparator comparator;
 	Eval evaluate;
 	StopCond stop_cond; // True if stop else False
+			    //
 	Selection sel_operator;
+	Changer mate_operator;
+	Changer mut_operator;
 
 	public:
 
-	GeneticAlgorithm(Generator gen, Comparator comp, Eval eval, StopCond stop_cond, Selection sel_o):
+	GeneticAlgorithm(Generator gen, Comparator comp, Eval eval, StopCond stop_cond, Selection sel_operator, Changer mate_operator, Changer mut_operator):
 		max_gen(50),
 		pop_size(100),
 		elite(5),
+		/*
+		cxpb(0.7),
+		mtpb(0.1),
+		mgpb(0.05),
+		*/
 		generator(gen),
 		comparator(comp),
 		evaluate(eval),
 		stop_cond(stop_cond),
-		sel_operator(sel_o),
+		sel_operator(sel_operator),
+		mate_operator(mate_operator),
+		mut_operator(mut_operator),
 		engine(rd()),
 		pb(0.0, 1.0),
 		dist(0, pop_size - 1)
@@ -143,15 +160,22 @@ class GeneticAlgorithm
 		config();
 	}
 
-	GeneticAlgorithm(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Eval eval, StopCond stop_cond, Selection sel_o):
+	GeneticAlgorithm(int max_gen, int pop_size, int elite, /*double cxpb, double mtpb, double mgpb,*/ Generator gen, Comparator comp, Eval eval, StopCond stop_cond, Selection sel_operator, Changer mate_operator, Changer mut_operator):
 		max_gen(max_gen),
 		pop_size(pop_size),
 		elite(elite),
+		/*
+		cxpb(cxpb),
+		mtpb(mtpb),
+		mgpb(mgpb),
+		*/
 		generator(gen),
 		comparator(comp),
 		evaluate(eval),
 		stop_cond(stop_cond),
-		sel_operator(sel_o),
+		sel_operator(sel_operator),
+		mate_operator(mate_operator),
+		mut_operator(mut_operator),
 		engine(rd()),
 		pb(0.0, 1.0),
 		dist(0, pop_size - 1)
@@ -159,10 +183,9 @@ class GeneticAlgorithm
 		config();
 	}
 
-	Individual operator()(crossover<Individual> &mate, mutation<Individual> &mutate)
+	Individual operator()(void)
 	{
 		BaseGeneration<GeneType, FitnessType> base_gen(pop_size, generator, evaluate);
-		std::vector<Individual> next_generation(pop_size);
 		int evaluated_counter = base_gen.compute_fitness();
 
 		Individual best = base_gen.get_best(comparator);
@@ -181,9 +204,9 @@ class GeneticAlgorithm
 
 		for(int iter = 1; iter <= max_gen; iter++)
 		{
-			sel_operator(base_gen.population, next_generation, comparator, engine);
-			mate(base_gen.population);
-			mutate(base_gen.population);
+			sel_operator(base_gen.population, comparator, engine);
+			mate_operator(base_gen.population, engine);
+			mut_operator(base_gen.population, engine);
 
 			evaluated_counter = base_gen.compute_fitness();
 

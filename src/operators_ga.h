@@ -40,12 +40,13 @@ class tournament
 	tournament(int tourn_size): tourn_size(tourn_size)
 	{	}
 
-	void operator()(std::vector<Individual> &gen, std::vector<Individual> &aspirants, Comparator comparator, std::mt19937 &engine)
+	void operator()(std::vector<Individual> &gen, Comparator comparator, std::mt19937 &engine)
 	{
 		int pop_size = gen.size();
+		std::vector<Individual> aspirants(pop_size);
 
 		auto get_best = [&](){
-			std::vector<Individual> rnd = sel_random(gen, tourn_size, engine);
+			std::vector<Individual> rnd = sel_random<Individual>(gen, tourn_size, engine);
 			return *std::min_element(rnd.begin(), rnd.end(), comparator);
 		};
 
@@ -62,31 +63,28 @@ class tournament
 template <typename Individual>
 class crossover
 {
-	typedef std::function<void(Individual&, Individual&, std::mt19937&)> Mate_func;
+	typedef std::function<void(Individual&, Individual&, std::mt19937&)> Crossover;
 
-	std::mt19937 engine;
 	std::uniform_real_distribution<double> pb;
 
 	double cxpb;
-	Mate_func mate_func;
+	Crossover mate_func;
 
 	public:
 	
-	crossover(Mate_func mate_func):
+	crossover(Crossover mate_func):
 		cxpb(0.7),
 		mate_func(mate_func),
-		engine(rd()),
 		pb(0.0, 1.0)
 	{	}
 
-	crossover(double cxpb, Mate_func mate_func):
+	crossover(double cxpb, Crossover mate_func):
 		cxpb(cxpb),
 		mate_func(mate_func),
-		engine(rd()),
 		pb(0.0, 1.0)
 	{	}
 
-	void operator()(std::vector<Individual> &aspirants, std::vector<Individual> child)
+	void operator()(std::vector<Individual> &aspirants, std::mt19937 &engine)
 	{
 		int pop_size = aspirants.size();
 
@@ -130,33 +128,29 @@ void cx_one_point(Individual &lhs, Individual &rhs, std::mt19937 &engine)
 template <typename Individual>
 class mutation
 {
-	typedef std::function<void(Individual&, double, std::mt19937&)> Mut_func;
-	std::random_device rd;
-	std::mt19937 engine;
+	typedef std::function<void(Individual&, double, std::mt19937&)> Mutation;
 	std::uniform_real_distribution<double> pb;
 
 	double mtpb;
 	double mgpb;
-	Mut_func mut_func;
+	Mutation mut_func;
 
 	public:
 
 	mutation(void):
 		mtpb(0.1),
 		mgpb(0.05),
-		engine(rd()),
 		pb(0.0, 1.0)
 	{	}
 
-	mutation(double mtpb, double mgpb, Mut_func mut_func):
+	mutation(double mtpb, double mgpb, Mutation mut_func):
 		mtpb(mtpb),
 		mgpb(mgpb),
-		engine(rd()),
 		pb(0.0, 1.0),
 		mut_func(mut_func)
 	{	}
 
-	void operator()(std::vector<Individual> &child)
+	void operator()(std::vector<Individual> &child, std::mt19937 &engine)
 	{
 		int pop_size = child.size();
 
@@ -172,52 +166,31 @@ class mutation
 };
 
 template <typename Individual>
-class normal_mut
+void normal_mut(Individual &object, double mgpb, std::mt19937 &engine, double mu, double sigma)
 {
-	std::normal_distribution<double> norm;
-	std::uniform_real_distribution<double> pb;
+	std::normal_distribution<double> norm(mu, sigma);
+	std::uniform_real_distribution<double> pb(0.0, 1.0);
+	int size = object.genes.size();
 
-	public:
-
-	normal_mut(void): norm(0.0, 1.0), pb(0.0, 1.0)
-	{	}
-
-	normal_mut(double mu, double sigma): norm(mu, sigma), pb(0.0, 1.0)
-	{	}
-
-	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
+	for(int i = 0; i < size; i++)
 	{
-		int size = object.genes.size();
-
-		for(int i = 0; i < size; i++)
-		{
-			if(pb(engine) < mgpb)
-				object.genes[i] += norm(engine);
-		}
+		if(pb(engine) < mgpb)
+			object.genes[i] += norm(engine);
 	}
-};
+}
 
 template <typename Individual>
-class inverse_mut
+void inverse_mut(Individual &object, double mgpb, std::mt19937 &engine)
 {
-	std::uniform_real_distribution<double> pb;
+	std::uniform_real_distribution<double> pb(0.0, 1.0);
+	int size = object.genes.size();
 
-	public:
-
-	inverse_mut(void): pb(0.0, 1.0)
-	{	}
-
-	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
+	for(int i = 0; i < size; i++)
 	{
-		int size = object.genes.size();
-
-		for(int i = 0; i < size; i++)
-		{
-			if(pb(engine) < mgpb)
-				object.genes[i] = !object.genes[i];
-		}
+		if(pb(engine) < mgpb)
+			object.genes[i] = !object.genes[i];
 	}
-};
+}
 
 } // namespace ga
 
