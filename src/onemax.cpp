@@ -31,14 +31,7 @@ Individual generator(void)
 // The function to get fitness value.
 FitnessType evaluate(Individual &i)
 {
-	int s = 0;
-
-	for(auto j: i.genes)
-	{
-		s += j;
-	}
-
-	return s;
+	return std::accumulate(i.genes.begin(), i.genes.end(), 0);
 }
 
 // Stop conditions. True if stop else False.
@@ -49,53 +42,6 @@ bool stop_cond(Individual& i)
 		return true;
 	}
 	return false;
-}
-
-// The function that choose the one parent to mate. It will be ised in Selection operator of Genetic Algorithm
-Individual sel_func(const std::vector<Individual> &population, std::function<bool(const Individual&, const Individual&)> comparator)
-{
-	// Just one iteration of Tournament Selection.
-	int pop_size = population.size(), tourn_size = 3;
-	std::uniform_int_distribution getter(0, pop_size - 1);
-	std::vector<Individual> temp(tourn_size);
-
-	for(int i = 0; i < tourn_size; i++)
-	{
-		int p = getter(engine);
-		temp[i] = population[p];
-	}
-
-	// max_element searches max element in container using std::less
-	// but searches min element using std::greater
-	Individual best = *std::max_element(temp.begin(), temp.end(), comparator);
-
-	return best;
-}
-
-// The function that mate two parents. It will be used in Crossover operator of Genetic Algorithm
-void mate_func(Individual &i1, Individual &i2)
-{
-	int len_genes = i1.genes.size();
-
-	std::uniform_int_distribution dot(1, len_genes - 2);
-	int d = dot(engine);
-
-	for(int i = 0; i < d; i++)
-	{
-		std::swap(i1.genes[i], i2.genes[i]);
-	}
-}
-
-// The function that mutate one child. It will be used in Mutation operator of Genetic Algorithm
-void mut_func(Individual &i)
-{
-	int len_genes = i.genes.size();
-
-	std::uniform_int_distribution dot(0, len_genes - 1);
-
-	int p = dot(engine);
-
-	i.genes[p] = !i.genes[p];
 }
 
 std::ostream& operator<<(std::ostream &stream, const Individual &i)
@@ -109,16 +55,24 @@ std::ostream& operator<<(std::ostream &stream, const Individual &i)
 	return stream;
 }
 
+bool comparator(const Individual &lhs, const Individual &rhs)
+{
+	return lhs.fitness > rhs.fitness;
+}
+
 int main(void)
 {
-	int pop_size = 300, max_generations = 50, elite = 6;
-	double cxpb = 0.7, mtpb = 0.1;
+	int pop_size = 300, max_generations = 50, elite = 100;
+	double cxpb = 0.7, mtpb = 0.2, mgpb = 0.05;
+	int tourn_size = 6;
 
-	// std::less for maximizing
-	// std::greater for minimizing
-	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, cxpb, mtpb, generator, std::less<Individual>(), evaluate, stop_cond, sel_func, mate_func, mut_func);
+	ga::tournament<Individual> sel(tourn_size);
+	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>);
+	ga::mutation<Individual> mutation(mtpb, mgpb, ga::inverse_mut<Individual>());
 
-	Individual v = g_alg.alg();
+	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, sel);
+
+	Individual v = g_alg(crossover, mutation);
 
 	std::cout << v << std::endl;
 
