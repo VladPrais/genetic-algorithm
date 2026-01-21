@@ -14,11 +14,9 @@
 namespace ga {
 
 template <typename GeneType, typename FitnessType>
-class BaseIndividual
+struct BaseIndividual
 {
-	public:
-
-	GeneType genes;
+	std::vector<GeneType> genes;
 	FitnessType fitness;
 	bool valid;
 
@@ -26,7 +24,7 @@ class BaseIndividual
 		valid(false)
 	{	}
 
-	BaseIndividual(GeneType genes):
+	BaseIndividual(std::vector<GeneType> &genes):
 		valid(false),
 		genes(genes)
 	{	}
@@ -35,6 +33,16 @@ class BaseIndividual
 	{
 		fitness = fit_func(*this);
 		valid = true;
+	}
+
+	GeneType& operator[](size_t n)
+	{
+		return genes[n];
+	}
+
+	const GeneType& operator[](size_t n) const
+	{
+		return genes[n];
 	}
 };
 
@@ -95,6 +103,17 @@ class BaseGeneration
 		auto iter_worst = std::max_element(population.begin(), population.end(), comparator);
 
 		return *iter_worst;
+	}
+
+	Individual& operator[](size_t n)
+	{
+		population[n].valid = false;
+		return population[n];
+	}
+
+	const Individual& operator[](size_t n) const
+	{
+		return population[n];
 	}
 };
 

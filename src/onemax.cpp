@@ -6,7 +6,7 @@
 
 #include "ga.h"
 
-typedef std::vector<int> GeneType;
+typedef int GeneType;
 typedef int FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
@@ -19,7 +19,7 @@ const size_t LEN_GENES = 100;
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
 Individual generator(void)
 {
-	GeneType v(LEN_GENES);
+	std::vector<GeneType> v(LEN_GENES);
 
 	std::generate(v.begin(), v.end(), [](){ return dist(engine); });
 
@@ -37,10 +37,8 @@ FitnessType evaluate(Individual &i)
 // Stop conditions. True if stop else False.
 bool stop_cond(Individual& i)
 {
-	if(i.fitness == LEN_GENES)
-	{
+	if(i.fitness >= LEN_GENES)
 		return true;
-	}
 	return false;
 }
 
@@ -67,8 +65,8 @@ int main(void)
 	int tourn_size = 6;
 
 	ga::tournament<Individual> selection(tourn_size);
-	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>);
-	ga::mutation<Individual> mutation(mtpb, mgpb, ga::inverse_mut<Individual>);
+	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
+	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
 	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 

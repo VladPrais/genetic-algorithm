@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <functional>
+#include <string>
 #include <random>
 #include <vector>
 
@@ -65,10 +66,9 @@ class crossover
 {
 	typedef std::function<void(Individual&, Individual&, std::mt19937&)> Crossover;
 
-	std::uniform_real_distribution<double> pb;
-
 	double cxpb;
 	Crossover mate_func;
+	std::uniform_real_distribution<double> pb;
 
 	public:
 	
@@ -76,13 +76,17 @@ class crossover
 		cxpb(0.7),
 		mate_func(mate_func),
 		pb(0.0, 1.0)
-	{	}
+	{	
+		config();
+	}
 
 	crossover(double cxpb, Crossover mate_func):
 		cxpb(cxpb),
 		mate_func(mate_func),
 		pb(0.0, 1.0)
-	{	}
+	{	
+		config();
+	}
 
 	void operator()(std::vector<Individual> &aspirants, std::mt19937 &engine)
 	{
@@ -105,21 +109,32 @@ class crossover
 		}
 	}
 	
+	private:
+
+	void config(void)
+	{
+		if(cxpb > 1.0)
+			throw std::overflow_error("Overflow crossover probability: " + std::to_string(cxpb));
+		if(cxpb < 0.0)
+			throw std::underflow_error("Underflow crossover probability: " + std::to_string(cxpb));
+	}
 };
 
 template <typename Individual>
-void cx_one_point(Individual &lhs, Individual &rhs, std::mt19937 &engine)
+struct cx_one_point
 {
-	int size = std::min(lhs.genes.size(), rhs.genes.size());
-	std::uniform_int_distribution<int> dist(1, size - 1);
-
-	int point = dist(engine);
-
-	for(int i = 0; i < point; i++)
+	void operator()(Individual &lhs, Individual &rhs, std::mt19937 &engine)
 	{
-		std::swap(lhs.genes[i], rhs.genes[i]);
+		int size = std::min(lhs.genes.size(), rhs.genes.size());
+		std::uniform_int_distribution<int> dist(1, size - 1);
+		int point = dist(engine);
+
+		for(int i = 0; i < point; i++)
+		{
+			std::swap(lhs.genes[i], rhs.genes[i]);
+		}
 	}
-}
+};
 
 /*
  * Mutation operator
@@ -141,14 +156,18 @@ class mutation
 		mtpb(0.1),
 		mgpb(0.05),
 		pb(0.0, 1.0)
-	{	}
+	{
+		config();
+	}
 
 	mutation(double mtpb, double mgpb, Mutation mut_func):
 		mtpb(mtpb),
 		mgpb(mgpb),
 		pb(0.0, 1.0),
 		mut_func(mut_func)
-	{	}
+	{
+		config();
+	}
 
 	void operator()(std::vector<Individual> &child, std::mt19937 &engine)
 	{
@@ -163,34 +182,67 @@ class mutation
 			}
 		}
 	}
+
+	private:
+
+	void config(void)
+	{
+		if(mtpb > 1.0)
+			throw std::overflow_error("Overflow mutation probability: " + std::to_string(mtpb));
+		if(mgpb > 1.0)
+			throw std::overflow_error("Overflow mutation of gene probability: " + std::to_string(mgpb));
+		if(mtpb < 0.0)
+			throw std::underflow_error("Underflow mutation probability: " + std::to_string(mtpb));
+		if(mgpb < 0.0)
+			throw std::underflow_error("Underflow mutation of gene probability: " + std::to_string(mgpb));
+	}
 };
 
 template <typename Individual>
-void normal_mut(Individual &object, double mgpb, std::mt19937 &engine, double mu, double sigma)
+struct mut_gaussian
 {
-	std::normal_distribution<double> norm(mu, sigma);
-	std::uniform_real_distribution<double> pb(0.0, 1.0);
-	int size = object.genes.size();
+	double mu;
+	double sigma;
+	std::uniform_real_distribution<double> pb;
 
-	for(int i = 0; i < size; i++)
+	mut_gaussian(void): mu(0.0), sigma(1.0), pb(0.0, 1.0)
+	{	}
+
+	mut_gaussian(double mu, double sigma): mu(mu), sigma(sigma), pb(0.0, 1.0)
+	{	}
+
+	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
 	{
-		if(pb(engine) < mgpb)
-			object.genes[i] += norm(engine);
+		std::normal_distribution<double> norm(mu, sigma);
+		int size = object.genes.size();
+
+		for(int i = 0; i < size; i++)
+		{
+			if(pb(engine) < mgpb)
+				object.genes[i] += norm(engine);
+		}
 	}
-}
+};
 
 template <typename Individual>
-void inverse_mut(Individual &object, double mgpb, std::mt19937 &engine)
+struct mut_inverse
 {
-	std::uniform_real_distribution<double> pb(0.0, 1.0);
-	int size = object.genes.size();
+	std::uniform_real_distribution<double> pb;
 
-	for(int i = 0; i < size; i++)
+	mut_inverse(void): pb(0.0, 1.0)
+	{	}
+
+	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
 	{
-		if(pb(engine) < mgpb)
-			object.genes[i] = !object.genes[i];
+		int size = object.genes.size();
+
+		for(int i = 0; i < size; i++)
+		{
+			if(pb(engine) < mgpb)
+				object.genes[i] = !object.genes[i];
+		}
 	}
-}
+};
 
 } // namespace ga
 

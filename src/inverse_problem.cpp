@@ -68,7 +68,7 @@ const double a = 1.0, b = 2.0; // bounds
 vector<double> Y0{1.0, 1.0, 2.0}, X(N); // initial conditions and x-nodes
 vector<vector<double>> SOLUTION(N, Y0); 
 
-typedef vector<double> GeneType;
+typedef double GeneType;
 typedef double FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
@@ -188,9 +188,8 @@ int main(void)
 	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.01, mu = 0.0, sigma = 2.0;
 
 	ga::tournament<Individual> selection(tourn_size);
-	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>);
-	auto mut = [mu, sigma](Individual &i, double mgpb, std::mt19937 &engine){ return ga::normal_mut<Individual>(i, mgpb, engine, mu, sigma); };
-	ga::mutation<Individual> mutation(mtpb, mgpb, mut);
+	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
+	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_gaussian<Individual>(mu, sigma));
 
 	ga::GeneticAlgorithm<GeneType, FitnessType> ga_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 
