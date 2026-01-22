@@ -15,7 +15,7 @@ namespace ga
  */
 
 template <typename Individual>
-std::vector<Individual> sel_random(const std::vector<Individual> &population, size_t n, std::mt19937 &__engine__)
+std::vector<Individual> sel_random(std::vector<Individual> &population, size_t n, std::mt19937 &__engine__)
 {
 	int pop_size = population.size();
 	std::vector<Individual> v(n);

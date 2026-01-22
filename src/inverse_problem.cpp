@@ -68,13 +68,13 @@ const double a = 1.0, b = 2.0; // bounds
 vector<double> Y0{1.0, 1.0, 2.0}, X(N); // initial conditions and x-nodes
 vector<vector<double>> SOLUTION(N, Y0); 
 
-typedef double GeneType;
+typedef std::vector<double> GeneType;
 typedef double FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
 Individual generator(void)
 {
-	vector<double> coefs(LEN_GENES);
+	GeneType coefs(LEN_GENES);
 	
 	for(int i = 0; i < LEN_GENES; i++)
 	{
@@ -185,7 +185,7 @@ int main(void)
 	SOLUTION = rk4(X, Y0, func);
 
 	int max_gen = 300, pop_size = 300, elite = 2, tourn_size = 3;
-	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.01, mu = 0.0, sigma = 2.0;
+	double cxpb = 0.5, mtpb = 0.2, mgpb = 0.2, mu = 0.0, sigma = 2.0;
 
 	ga::tournament<Individual> selection(tourn_size);
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());

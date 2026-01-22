@@ -6,7 +6,7 @@
 
 #include "ga.h"
 
-typedef int GeneType;
+typedef std::vector<int> GeneType;
 typedef int FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
@@ -19,7 +19,7 @@ const size_t LEN_GENES = 100;
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
 Individual generator(void)
 {
-	std::vector<GeneType> v(LEN_GENES);
+	GeneType v(LEN_GENES);
 
 	std::generate(v.begin(), v.end(), [](){ return dist(engine); });
 
