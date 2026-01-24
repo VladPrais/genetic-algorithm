@@ -2,12 +2,10 @@
 #define __GA_H__
 
 #include <algorithm>
-#include <fstream>
 #include <functional>
 #include <iostream>
 #include <numeric>
 #include <random>
-#include <thread>
 #include <vector>
 
 #include "operators_ga.h"
@@ -43,7 +41,7 @@ struct BaseIndividual
 };
 
 template <typename GeneType, typename FitnessType>
-struct BaseGenetic
+class BaseGenetic
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
@@ -69,6 +67,8 @@ struct BaseGenetic
 	Selection sel;
 	Changer mate;
 	Changer mut;
+
+	public:
 
 	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
 		max_gen(50),
@@ -102,6 +102,8 @@ struct BaseGenetic
 		config();
 	}
 
+	private:
+
 	void config(void)
 	{
 		bool underflow_max_gen = max_gen <= 0;
@@ -118,10 +120,22 @@ struct BaseGenetic
 		if(overflow_elite)
 			throw std::underflow_error("Overflow elite value " + std::to_string(elite));
 	}
+
+	static Individual get_best(Population &pop, Comparator comp)
+	{
+		auto best = std::min_element(pop.begin(), pop.end(), comp);
+		return *best;
+	}
+
+	static Individual get_worst(Population &pop, Comparator comp)
+	{
+		auto worst = std::max_element(pop.begin(), pop.end(), comp);
+		return *worst;
+	}
 };
 
 template <typename GeneType, typename FitnessType>
-class GeneticAlgorithm: private BaseGenetic<GeneType, FitnessType>
+class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
@@ -132,79 +146,23 @@ class GeneticAlgorithm: private BaseGenetic<GeneType, FitnessType>
 	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
 	using Changer =  std::function<void(Population&, std::mt19937&)>;
 
-	/*
-	typedef BaseIndividual<GeneType, FitnessType> Individual;
-	typedef std::vector<Individual> Population;
-
-	typedef std::function<Individual(void)> Generator;
-	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
-	typedef std::function<FitnessType(Individual&)> Eval;
-	typedef std::function<bool(Individual&)> StopCond;
-
-	typedef std::function<void(Population&, Comparator, std::mt19937&)> Selection;
-	typedef std::function<void(Population&, std::mt19937&)> Changer;
-	*/
-
-
-	/*
-	int max_gen;
-	int pop_size;
-	int elite;
-	*/
-
 	Population population;
-
-	/*
-	Generator generator;
-	Comparator comparator;
-	Eval evaluate;
-	StopCond stop_cond; // True if stop else False
-	
-	Selection sel_operator;
-	Changer mate_operator;
-	Changer mut_operator;
-
-	Population population;
-	*/
 
 	public:
 
-	GeneticAlgorithm(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	bool output;
+
+	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
-		/*
-		max_gen(50),
-		pop_size(100),
-		elite(5),
-		generator(gen),
-		comparator(comp),
-		evaluate(eval),
-		stop_cond(stop_cond),
-		sel_operator(sel_operator),
-		mate_operator(mate_operator),
-		mut_operator(mut_operator),
-		*/
-		population(this->pop_size)
+		population(this->pop_size),
+		output(true)
 	{	
 	}
 
-	GeneticAlgorithm(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	SimpleGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
 		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
-		/*
-		max_gen(max_gen),
-		pop_size(pop_size),
-		elite(elite),
-		generator(gen),
-		comparator(comp),
-		evaluate(eval),
-		stop_cond(stop_cond),
-		sel_operator(sel_operator),
-		mate_operator(mate_operator),
-		mut_operator(mut_operator),
-		engine(rd()),
-		pb(0.0, 1.0),
-		dist(0, pop_size - 1),
-		*/
-		population(this->pop_size)
+		population(this->pop_size),
+		output(true)
 	{	
 	}
 
@@ -213,17 +171,20 @@ class GeneticAlgorithm: private BaseGenetic<GeneType, FitnessType>
 		std::generate(population.begin(), population.end(), this->generator);
 		int evaluated_counter = compute_fitness(population);
 
-		Individual best = get_best(population);
-		Individual worst = get_worst(population);
+		Individual best = this->get_best(population, this->comparator);
+		Individual worst = this->get_worst(population, this->comparator);
 
 		auto ch = '\t';
 
-		std::cout << "iter" << ch << "evals" << ch << "low-fit" << ch << "high-fit" << std::endl;
-		std::cout << 0 << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << std::endl;
+		if (output)
+		{
+			std::cout << "iter" << ch << "evals" << ch << "low-fit" << ch << "high-fit" << std::endl;
+			std::cout << 0 << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << std::endl;
+		}
 
 		if(this->stopcond(best))
 		{
-			std::cout << "Success!" << std::endl;
+			//std::cout << "Success!" << std::endl;
 			return best;
 		}
 
@@ -231,14 +192,15 @@ class GeneticAlgorithm: private BaseGenetic<GeneType, FitnessType>
 		{
 			evaluated_counter = one_iter(population);
 
-			best = get_best(population);
-			worst = get_worst(population);
+			best = this->get_best(population, this->comparator);
+			worst = this->get_worst(population, this->comparator);
 
-			std::cout << iter << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << ch << std::endl;
+			if (output)
+				std::cout << iter << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << ch << std::endl;
 
 			if(this->stopcond(best))
 			{
-				std::cout << "Success!" << std::endl;
+				//std::cout << "Success!" << std::endl;
 				return best;
 			}
 		}	
@@ -272,63 +234,66 @@ class GeneticAlgorithm: private BaseGenetic<GeneType, FitnessType>
 		}
 		return evaluated_counter;
 	}
+};
 
-	Individual get_best(Population &population) const
+template <typename GeneType, typename FitnessType>
+class AdvancedGeneticAlgorithm: BaseGenetic<GeneType, FitnessType>
+{	
+	using Individual = BaseIndividual<GeneType, FitnessType>;
+	using Population = std::vector<Individual>;
+	using Generator = std::function<Individual(void)>;
+	using Comparator = std::function<bool(const Individual&, const Individual&)>;
+	using Evaluate = std::function<FitnessType(Individual&)>;
+	using StopCond = std::function<bool(Individual&)>;
+	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
+	using Changer =  std::function<void(Population&, std::mt19937&)>;
+
+	Population population;
+
+	public:
+
+	AdvancedGeneticAlgorithm(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
+		population(this->pop_size),
+	{	}
+
+	AdvancedGeneticAlgorithm(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
+		population(this->pop_size),
+	{	}
+
+	Individual operator()(void)
 	{
-		auto iter_best = std::min_element(population.begin(), population.end(), this->comparator);
+		int threads_count = std::thread::hardware_concurrency();
+		thread_pool pool(threads_count);
 
-		return *iter_best;
+
 	}
 
-	Individual get_worst(Population &population) const
-	{
-		auto iter_worst = std::max_element(population.begin(), population.end(), this->comparator);
+	private:
 
-		return *iter_worst;
+	int compute_fitness()
+	{
+		int evaluated_counter = 0;
+
+		for(auto i = pop.begin(); i != pop.end(); i++)
+		{
+			if(!i->is_valid())
+			{
+				i->compute_fitness(this->evaluate);
+				evaluated_counter++;
+			}
+		}
+
+		return evaluated_counter;
 	}
 
-	/*
-	void config(void)
+	void one_iter(Population &pop)
 	{
-		bool underflow_max_gen = max_gen < 0;
-		bool underflow_pop_size = pop_size < 0;
-		bool underflow_elite = elite < 0;
-
-		if(underflow_max_gen)
-		{
-			throw std::underflow_error("Negative max-generations value.");
-		}
-		if(underflow_pop_size)
-		{
-			throw std::underflow_error("Negative pop-size value.");
-		}
-		if(underflow_elite)
-		{
-			throw std::underflow_error("Negative elite value.");
-		}
-
-		bool invalid_elite = elite >= pop_size;
-
-		if(invalid_elite)
-		{
-			throw std::overflow_error("Invalid elite value: elite >= pop-size.");
-		}
-
-		bool even_elite = (elite % 2) == 0;
-		bool even_pop_size = (pop_size % 2) == 0;
-		bool odd_elite = !even_elite;
-		bool odd_pop_size = !even_pop_size;
-
-		if(even_pop_size and odd_elite)
-		{
-			throw std::logic_error("!!!");
-		}
-		if(odd_pop_size and even_elite)
-		{
-			throw std::logic_error("!!!");
-		}
+		this->sel(pop, this->comparator, this->engine);
+		this->mate(pop, this->engine);
+		this->mut(pop, this->engine);
 	}
-	*/
 };
 
 } // namespace ga

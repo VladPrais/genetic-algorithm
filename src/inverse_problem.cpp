@@ -191,7 +191,7 @@ int main(void)
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_gaussian<Individual>(mu, sigma));
 
-	ga::GeneticAlgorithm<GeneType, FitnessType> ga_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::SimpleGeneticAlgorithm<GeneType, FitnessType> ga_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 
 	Individual best = ga_alg();
 

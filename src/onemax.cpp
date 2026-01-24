@@ -60,18 +60,19 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 300, max_generations = 50, elite = 10;
-	double cxpb = 0.7, mtpb = 0.2, mgpb = 0.01;
-	int tourn_size = 6;
+	int pop_size = 300, max_generations = 200, elite = 10;
+	double cxpb = 0.7, mtpb = 0.3, mgpb = 0.01;
+	int tourn_size = 3;
 
 	ga::tournament<Individual> selection(tourn_size);
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
-	ga::GeneticAlgorithm<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::SimpleGenetic<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	
+	g_alg.output = true;
 
 	Individual v = g_alg();
-
 	std::cout << v << std::endl;
 
 	return 0;
