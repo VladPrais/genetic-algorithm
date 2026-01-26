@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "operators_ga.h"
+#include "../../thread-pool/src/thread_pool.h"
 
 namespace ga {
 
@@ -41,7 +42,7 @@ struct BaseIndividual
 };
 
 template <typename GeneType, typename FitnessType>
-class BaseGenetic
+struct BaseGenetic
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
@@ -50,7 +51,8 @@ class BaseGenetic
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
 	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
-	using Changer =  std::function<void(Population&, std::mt19937&)>;
+	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
+	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
 	std::random_device rd;
 	std::mt19937 engine;
@@ -65,12 +67,12 @@ class BaseGenetic
 	StopCond stopcond;
 
 	Selection sel;
-	Changer mate;
-	Changer mut;
+	Crossover mate;
+	Mutation mut;
 
 	public:
 
-	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		max_gen(50),
 		pop_size(100),
 		elite(10),
@@ -86,7 +88,7 @@ class BaseGenetic
 		config();
 	}
 
-	BaseGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	BaseGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		max_gen(max_gen),
 		pop_size(pop_size),
 		elite(elite),
@@ -101,8 +103,6 @@ class BaseGenetic
 	{
 		config();
 	}
-
-	private:
 
 	void config(void)
 	{
@@ -144,7 +144,8 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
 	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
-	using Changer =  std::function<void(Population&, std::mt19937&)>;
+	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
+	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
 	Population population;
 
@@ -152,14 +153,14 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 
 	bool output;
 
-	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
 		population(this->pop_size),
 		output(true)
 	{	
 	}
 
-	SimpleGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	SimpleGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
 		population(this->pop_size),
 		output(true)
@@ -213,8 +214,8 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 	int one_iter(Population &pop)
 	{
 		this->sel(pop, this->comparator, this->engine);
-		this->mate(pop, this->engine);
-		this->mut(pop, this->engine);
+		this->mate(pop.begin(), pop.end(), this->engine);
+		this->mut(pop.begin(), pop.end(), this->engine);
 
 		return compute_fitness(population);
 	}
@@ -237,7 +238,21 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 };
 
 template <typename GeneType, typename FitnessType>
-class AdvancedGeneticAlgorithm: BaseGenetic<GeneType, FitnessType>
+std::ostream& operator<<(std::ostream &stream, const BaseIndividual<GeneType, FitnessType> &it)
+{
+	for(auto i = it.genes.begin(); i != it.genes.end(); i++)
+	{
+		stream << *i;
+		if (i + 1 != it.genes.end())
+			stream << ' ';
+	}
+	stream << ' ' << it.fitness;
+
+	return stream;
+}
+
+template <typename GeneType, typename FitnessType>
+class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 {	
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
@@ -246,53 +261,197 @@ class AdvancedGeneticAlgorithm: BaseGenetic<GeneType, FitnessType>
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
 	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
-	using Changer =  std::function<void(Population&, std::mt19937&)>;
+	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
+	using Mutation =  std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
-	Population population;
+	std::atomic<int> tasks_count;
+	std::atomic<int> evaluated_counter;
+	std::mutex mutex;
+	std::condition_variable cond_var;
+	int threads_count;
+	thread_pool pool;
 
 	public:
 
-	AdvancedGeneticAlgorithm(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	bool output;
+
+	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
-		population(this->pop_size),
+		threads_count(std::thread::hardware_concurrency()),
+		pool(threads_count),
+		output(true)
 	{	}
 
-	AdvancedGeneticAlgorithm(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Changer mate, Changer mut):
+	AdvancedGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
-		population(this->pop_size),
+		threads_count(std::thread::hardware_concurrency()),
+		pool(threads_count),
+		output(true)
 	{	}
 
 	Individual operator()(void)
 	{
-		int threads_count = std::thread::hardware_concurrency();
-		thread_pool pool(threads_count);
+		Population population(this->pop_size);
+		std::generate(population.begin(), population.end(), this->generator);
 
+		for(int iter = 0; iter < this->max_gen; iter++)
+		{
+			this->sel(population, this->comparator, this->engine);
+			mate_parallel(population);
+			mutation_parallel(population);
 
+			int eval_count = compute_fitness(population);
+
+			Individual best = this->get_best(population, this->comparator);
+			Individual worst = this->get_worst(population, this->comparator);
+
+			if (output)
+			{
+				std::cout << iter << '\t' << eval_count << '\t' << worst.fitness << '\t' << best.fitness << std::endl;
+			}
+
+			if (this->stopcond(best))
+			{
+				std::cout << "Success" << std::endl;
+				return best;
+			}
+		}
+
+		return this->get_best(population, this->comparator);
 	}
 
 	private:
 
-	int compute_fitness()
+	void init_pop(Population &pop)
 	{
-		int evaluated_counter = 0;
+		tasks_count = threads_count;
+		int h = this->pop_size / threads_count;
+		int r = this->pop_size % threads_count;
+		int d = 0;
 
-		for(auto i = pop.begin(); i != pop.end(); i++)
+		for(int i = 0; i < threads_count; i++)
 		{
-			if(!i->is_valid())
-			{
-				i->compute_fitness(this->evaluate);
-				evaluated_counter++;
-			}
+			int t = i < r ? 1 : 0;
+			auto begin = pop.begin() + d;
+			auto end = pop.begin() + d + t + h;
+
+			pool.push([this, begin, end](){
+				std::generate(begin, end, this->generator);
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
 		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
+	}
+
+	int compute_fitness(Population &pop)
+	{
+		evaluated_counter = 0;
+		tasks_count = threads_count;
+
+		int h = this->pop_size / threads_count;
+		int r = this->pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+			auto begin = pop.begin() + chunk;
+			auto end = pop.begin() + chunk + t + h;
+
+			pool.push([this, begin, end](){
+				std::for_each(begin, end, [this](Individual &i){
+						if (!i.valid)
+						{
+							++evaluated_counter;
+							i.compute_fitness(this->evaluate);
+						}
+				});
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
+
+			chunk += t + h;
+		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
 
 		return evaluated_counter;
 	}
 
-	void one_iter(Population &pop)
+	void mutation_parallel(Population &pop)
 	{
-		this->sel(pop, this->comparator, this->engine);
-		this->mate(pop, this->engine);
-		this->mut(pop, this->engine);
+		tasks_count = threads_count;
+		int h = this->pop_size / threads_count;
+		int r = this->pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+			auto begin = pop.begin() + chunk;
+			auto end = pop.begin() + chunk + t + h;
+
+			pool.push([this, begin, end](){
+				this->mut(begin, end, this->engine);
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
+
+			chunk += t + h;
+		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
+	}
+
+	void mate_parallel(Population &pop)
+	{
+		tasks_count = threads_count;
+		int h = this->pop_size / threads_count;
+		int r = this->pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+			auto begin = pop.begin() + chunk;
+			auto end = pop.begin() + chunk + t + h;
+
+			pool.push([this, begin, end](){
+				this->mate(begin, end, this->engine);
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
+
+			chunk += t + h;
+		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
+	}
+
+	void print(Population &pop)
+	{
+		for(auto &i: pop)
+		{
+			for(auto &g: i.genes)
+			{
+				std::cout << g << ' ';
+			}
+			std::cout << ' ' << i.fitness << std::endl;
+		}
 	}
 };
 

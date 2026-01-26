@@ -88,6 +88,7 @@ class crossover
 		config();
 	}
 
+	/*
 	void operator()(std::vector<Individual> &aspirants, std::mt19937 &engine)
 	{
 		int pop_size = aspirants.size();
@@ -108,7 +109,32 @@ class crossover
 			}
 		}
 	}
+	*/
 	
+	template <typename Iterator>
+	void operator()(Iterator begin, Iterator end, std::mt19937 &engine)
+	{
+		int pop_size = std::distance(begin, end);
+		int inc = 0;
+
+		if(pop_size % 2 != 0)
+			inc = 1;
+//			throw std::logic_error("Population size have to be even");
+
+		for(Iterator i = begin; i + inc != end; i += 2)
+		{
+			double p = pb(engine);
+
+			if(p < cxpb)
+			{
+				mate_func(*i, *(i + 1), engine);
+
+				i->valid = false;
+				(i + 1)->valid = false;
+			}
+		}
+	}
+
 	private:
 
 	void config(void)
@@ -169,6 +195,7 @@ class mutation
 		config();
 	}
 
+	/*
 	void operator()(std::vector<Individual> &child, std::mt19937 &engine)
 	{
 		int pop_size = child.size();
@@ -179,6 +206,19 @@ class mutation
 			{
 				mut_func(child[i], mgpb, engine);
 				child[i].valid = false;
+			}
+		}
+	}
+	*/
+
+	void operator()(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end, std::mt19937 &engine)
+	{
+		for(auto i = begin; i != end; i++)
+		{
+			if(pb(engine) < mtpb)
+			{
+				mut_func(*i, mgpb, engine);
+				i->valid = false;
 			}
 		}
 	}

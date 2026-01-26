@@ -62,7 +62,7 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 1e4, max_generations = 200, elite = 10;
+	int pop_size = 1e4, max_generations = 200, elite = 0;
 	double cxpb = 0.7, mtpb = 0.3, mgpb = 0.01;
 	int tourn_size = 3;
 
@@ -70,7 +70,7 @@ int main(void)
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
-	ga::SimpleGenetic<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::AdvancedGenetic<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 
 	g_alg.output = true;
 	Individual v = g_alg();
