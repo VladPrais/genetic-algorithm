@@ -57,7 +57,7 @@ struct BaseGenetic
 	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
 	std::random_device rd;
-	std::mt19937 engine;
+	std::vector<std::mt19937> mt;
 
 	int max_gen;
 	int pop_size;
@@ -85,7 +85,6 @@ struct BaseGenetic
 		select(sel),
 		mate(mate),
 		mutate(mut),
-		engine(rd()),
 		output(true)
 	{
 		config();
@@ -102,7 +101,6 @@ struct BaseGenetic
 		select(sel),
 		mate(mate),
 		mutate(mut),
-		engine(rd()),
 		output(true)
 	{
 		config();
@@ -110,9 +108,11 @@ struct BaseGenetic
 
 	Individual operator()(void)
 	{
+		init_mt();
+
 		Population population(pop_size);
 
-		std::generate(population.begin(), population.end(), [this](){ return generator(engine); });
+		std::generate(population.begin(), population.end(), [this](){ return generator(mt[0]); });
 		int evaluated_count = evaluate_pop(population.begin(), population.end());
 
 		Individual best = get_best(population.begin(), population.end(), comparator);
@@ -171,17 +171,17 @@ struct BaseGenetic
 
 	virtual void selection_operator(typename Population::iterator begin, typename Population::iterator end)
 	{
-		select(begin, end, comparator, engine);
+		select(begin, end, comparator, mt[0]);
 	}
 
 	virtual void crossover_operator(typename Population::iterator begin, typename Population::iterator end)
 	{
-		mate(begin, end, engine);
+		mate(begin, end, mt[0]);
 	}
 
 	virtual void mutation_operator(typename Population::iterator begin, typename Population::iterator end)
 	{
-		mutate(begin, end, engine);
+		mutate(begin, end, mt[0]);
 	}
 
 	static void print_head(void)
@@ -206,6 +206,12 @@ struct BaseGenetic
 	{
 		auto worst = std::max_element(begin, end, comp);
 		return *worst;
+	}
+
+	virtual void init_mt(void)
+	{
+		std::random_device rd;
+		mt.push_back(std::mt19937(rd()));
 	}
 
 	void config(void)
@@ -495,8 +501,8 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 			auto local_begin = begin + chunk;
 			auto local_end = begin + chunk + t + h;
 
-			pool.push([this, local_begin, local_end](){
-				this->mate(local_begin, local_end, this->engine);
+			pool.push([this, local_begin, local_end, i](){
+				this->mate(local_begin, local_end, this->mt[i]);
 				if (!(--tasks_count))
 				{
 					cond_var.notify_one();
@@ -526,8 +532,8 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 			auto local_begin = begin + chunk;
 			auto local_end = begin + chunk + t + h;
 
-			pool.push([this, local_begin, local_end](){
-				this->mutate(local_begin, local_end, this->engine);
+			pool.push([this, local_begin, local_end, i](){
+				this->mutate(local_begin, local_end, this->mt[i]);
 				if (!(--tasks_count))
 				{
 					cond_var.notify_one();
@@ -541,7 +547,15 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
 
+	void init_mt(void) override
+	{
+		std::random_device rd;
 
+		for(int i = 0; i < threads_count; i++)
+		{
+			this->mt.push_back(std::mt19937(rd()));
+		}
+	}
 
 	/*
 	void print(Population &pop)
