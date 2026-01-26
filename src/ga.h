@@ -46,7 +46,7 @@ struct BaseGenetic
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
-	using Generator = std::function<Individual(void)>;
+	using Generator = std::function<Individual(std::mt19937&)>;
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
@@ -64,13 +64,11 @@ struct BaseGenetic
 	Generator generator;
 	Comparator comparator;
 	Evaluate evaluate;
-	StopCond stopcond;
+	StopCond stop_cond;
 
 	Selection sel;
 	Crossover mate;
 	Mutation mut;
-
-	public:
 
 	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		max_gen(50),
@@ -79,7 +77,7 @@ struct BaseGenetic
 		generator(gen),
 		comparator(comp),
 		evaluate(eval),
-		stopcond(stop),
+		stop_cond(stop),
 		sel(sel),
 		mate(mate),
 		mut(mut),
@@ -95,7 +93,7 @@ struct BaseGenetic
 		generator(gen),
 		comparator(comp),
 		evaluate(eval),
-		stopcond(stop),
+		stop_cond(stop),
 		sel(sel),
 		mate(mate),
 		mut(mut),
@@ -139,7 +137,7 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
-	using Generator = std::function<Individual(void)>;
+	using Generator = std::function<Individual(std::mt19937&)>;
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
@@ -147,29 +145,25 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
-	Population population;
-
 	public:
 
+	int iter_until_convergence;
 	bool output;
 
 	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
-		population(this->pop_size),
-		output(true)
+		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut)
 	{	
 	}
 
 	SimpleGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
-		population(this->pop_size),
-		output(true)
+		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut)
 	{	
 	}
 
 	Individual operator()(void)
 	{
-		std::generate(population.begin(), population.end(), this->generator);
+		Population population(this->pop_size);
+		std::generate(population.begin(), population.end(), [this](){ return this->generator(this->engine); });
 		int evaluated_counter = compute_fitness(population);
 
 		Individual best = this->get_best(population, this->comparator);
@@ -183,13 +177,13 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 			std::cout << 0 << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << std::endl;
 		}
 
-		if(this->stopcond(best))
+		if(this->stop_cond(best))
 		{
 			//std::cout << "Success!" << std::endl;
 			return best;
 		}
 
-		for(int iter = 1; iter <= this->max_gen; iter++)
+		for(iter_until_convergence = 1; iter_until_convergence <= this->max_gen; iter_until_convergence++)
 		{
 			evaluated_counter = one_iter(population);
 
@@ -197,9 +191,9 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 			worst = this->get_worst(population, this->comparator);
 
 			if (output)
-				std::cout << iter << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << ch << std::endl;
+				std::cout << iter_until_convergence << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << ch << std::endl;
 
-			if(this->stopcond(best))
+			if(this->stop_cond(best))
 			{
 				//std::cout << "Success!" << std::endl;
 				return best;
@@ -217,14 +211,14 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 		this->mate(pop.begin(), pop.end(), this->engine);
 		this->mut(pop.begin(), pop.end(), this->engine);
 
-		return compute_fitness(population);
+		return compute_fitness(pop);
 	}
 
-	int compute_fitness(Population &population)
+	int compute_fitness(Population &pop)
 	{
 		int evaluated_counter = 0;
 
-		for(Individual &i: population)
+		for(Individual &i: pop)
 		{
 			if(!i.is_valid())
 			{
@@ -256,7 +250,7 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 {	
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
-	using Generator = std::function<Individual(void)>;
+	using Generator = std::function<Individual(std::mt19937&)>;
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
@@ -274,27 +268,26 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 	public:
 
 	bool output;
+	int iter_until_convergence;
 
 	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
 		threads_count(std::thread::hardware_concurrency()),
-		pool(threads_count),
-		output(true)
+		pool(threads_count)
 	{	}
 
 	AdvancedGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
 		threads_count(std::thread::hardware_concurrency()),
-		pool(threads_count),
-		output(true)
+		pool(threads_count)
 	{	}
 
 	Individual operator()(void)
 	{
 		Population population(this->pop_size);
-		std::generate(population.begin(), population.end(), this->generator);
+		std::generate(population.begin(), population.end(), [this](){ return this->generator(this->engine); });
 
-		for(int iter = 0; iter < this->max_gen; iter++)
+		for(iter_until_convergence = 0; iter_until_convergence < this->max_gen; iter_until_convergence++)
 		{
 			this->sel(population, this->comparator, this->engine);
 			mate_parallel(population);
@@ -307,10 +300,10 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 
 			if (output)
 			{
-				std::cout << iter << '\t' << eval_count << '\t' << worst.fitness << '\t' << best.fitness << std::endl;
+				std::cout << iter_until_convergence << '\t' << eval_count << '\t' << worst.fitness << '\t' << best.fitness << std::endl;
 			}
 
-			if (this->stopcond(best))
+			if (this->stop_cond(best))
 			{
 				std::cout << "Success" << std::endl;
 				return best;

@@ -25,26 +25,26 @@ std::ostream& operator<<(std::ostream &stream, const Individual &individ)
 }
 
 const int len_genes = 3;
-const int onemax_len_genes = 100;
-const int onemax_max_gen = 200;
-const int onemax_pop_size = 300;
-const int onemax_elite = 5;
+const int onemax_len_genes = 60;
+const int onemax_max_gen = 100;
+const int onemax_pop_size = 200;
+const int onemax_elite = 0;
 
 //
 // Just onemax problem only
 //
 
-Individual onemax_generator(void)
+Individual onemax_generator(std::mt19937 &engine)
 {
 	GeneType genes(onemax_len_genes);
-	std::generate(genes.begin(), genes.end(), [](){ return zero_one(mt); });
+	std::generate(genes.begin(), genes.end(), [&engine](){ return zero_one(engine); });
 
 	return Individual(genes);
 }
 
 bool onemax_comparator(const Individual &lhs, const Individual &rhs)
 {
-	return lhs.fitness > lhs.fitness;
+	return lhs.fitness > rhs.fitness;
 }
 
 FitnessType onemax_evaluate(Individual &individ)
@@ -54,17 +54,17 @@ FitnessType onemax_evaluate(Individual &individ)
 
 bool onemax_stop_cond(Individual &individ)
 {
-	return std::accumulate(individ.genes.begin(), individ.genes.end(), 0) >= 100;
+	return std::accumulate(individ.genes.begin(), individ.genes.end(), 0) >= onemax_len_genes;
 }
 
 //
 //
 //
 
-Individual generator(void)
+Individual generator(std::mt19937 &engine)
 {
 	GeneType genes(len_genes);
-	std::generate(genes.begin(), genes.end(), [](){ return dist_pb(mt); });
+	std::generate(genes.begin(), genes.end(), [&engine](){ return dist_pb(engine); });
 
 	return Individual(genes);
 }
@@ -90,7 +90,7 @@ FitnessType evaluate(Individual &it)
 	}
 	if (mgpb < 0.0 || mgpb > 1.0)
 	{
-		mtpb = dist_pb(mt);
+		mgpb = dist_pb(mt);
 		//it.fitness += 10 * mgpb * mgpb;
 	}
 
@@ -100,29 +100,31 @@ FitnessType evaluate(Individual &it)
 
 	ga::SimpleGenetic<GeneType, FitnessType> g_alg(onemax_max_gen, onemax_pop_size, onemax_elite, onemax_generator, onemax_comparator, onemax_evaluate, onemax_stop_cond, selection, crossover, mutation);
 	g_alg.output = false;
-	Individual best = g_alg();
+	g_alg();
 
 	//std::cout << best << std::endl;
 
-	return g_alg.iter;
+	return g_alg.iter_until_convergence;
 }
 
 bool stop_cond(Individual &individ)
 {
-	return individ.fitness < 10;
+	return individ.fitness <= 13;
 }
 
 
 int main(void)
 {
-	int max_gen = 20, pop_size = 20, elite = 0;
+	int max_gen = 100, pop_size = 200, elite = 0;
 	double cxpb = 0.7, mtpb = 0.2, mgpb = 0.01;
 
 	ga::tournament<Individual> selection(3);
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
-	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_gaussian<Individual>(0.5, 0.5));
+	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_gaussian<Individual>(0.5, 0.1));
 
+	//ga::AdvancedGenetic<GeneType, FitnessType> g_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 	ga::SimpleGenetic<GeneType, FitnessType> g_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	g_alg.output = true;
 	
 	Individual best = g_alg();
 
@@ -130,12 +132,18 @@ int main(void)
 	mtpb = best.genes[1];
        	mgpb = best.genes[2];
 
+	for(auto v: best.genes)
+	{
+		std::cout << v << ' ';
+	}
+	std::cout << ' ' << best.fitness << std::endl;
+
 	//ga::tournament<Individual> selection(3);
 	//ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
-	ga::mutation<Individual> onemax_mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
+	//ga::mutation<Individual> onemax_mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
-	ga::SimpleGenetic<GeneType, FitnessType> onemax(onemax_max_gen, onemax_pop_size, onemax_elite, onemax_generator, onemax_comparator, onemax_evaluate, onemax_stop_cond, selection, crossover, onemax_mutation);
-	onemax();
+	//ga::SimpleGenetic<GeneType, FitnessType> onemax(onemax_max_gen, onemax_pop_size, onemax_elite, onemax_generator, onemax_comparator, onemax_evaluate, onemax_stop_cond, selection, crossover, onemax_mutation);
+	//onemax();
 
 	return 0;
 }

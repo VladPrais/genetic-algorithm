@@ -10,18 +10,16 @@ typedef std::vector<int> GeneType;
 typedef int FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
-std::random_device rd;
-std::mt19937 engine(rd());
 std::uniform_int_distribution dist(0, 1);
 
-const size_t LEN_GENES = 8e2;
+const size_t LEN_GENES = 1e2;
 
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
-Individual generator(void)
+Individual generator(std::mt19937 &engine)
 {
 	GeneType v(LEN_GENES);
 
-	std::generate(v.begin(), v.end(), [](){ return dist(engine); });
+	std::generate(v.begin(), v.end(), [&engine](){ return dist(engine); });
 
 	Individual I(v);
 
@@ -62,8 +60,8 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 1e4, max_generations = 200, elite = 10;
-	double cxpb = 0.7, mtpb = 0.3, mgpb = 0.01;
+	int pop_size = 3e3, max_generations = 300, elite = 10;
+	double cxpb = 0.6, mtpb = 0.4, mgpb = 0.03;
 	int tourn_size = 3;
 
 	ga::tournament<Individual> selection(tourn_size);
