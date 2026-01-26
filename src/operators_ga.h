@@ -15,13 +15,13 @@ namespace ga
  */
 
 template <typename Individual>
-std::vector<Individual> sel_random(std::vector<Individual> &population, size_t n, std::mt19937 &__engine__)
+std::vector<Individual> sel_random(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end , size_t n, std::mt19937 &engine)
 {
-	int pop_size = population.size();
+	int pop_size = std::distance(begin, end);
 	std::vector<Individual> v(n);
 	std::uniform_int_distribution<int> dist(0, pop_size - 1);
 
-	std::generate(v.begin(), v.end(), [&](){ return population[dist(__engine__)]; });
+	std::generate(v.begin(), v.end(), [&dist, &engine, begin](){ return *(begin + dist(engine)); });
 
 	return v;
 }
@@ -41,19 +41,19 @@ class tournament
 	tournament(int tourn_size): tourn_size(tourn_size)
 	{	}
 
-	void operator()(std::vector<Individual> &gen, Comparator comparator, std::mt19937 &engine)
+	void operator()(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end , Comparator comparator, std::mt19937 &engine)
 	{
-		int pop_size = gen.size();
+		int pop_size = std::distance(begin, end);
 		std::vector<Individual> aspirants(pop_size);
 
 		auto get_best = [&](){
-			std::vector<Individual> rnd = sel_random<Individual>(gen, tourn_size, engine);
+			std::vector<Individual> rnd = sel_random<Individual>(begin, end, tourn_size, engine);
 			return *std::min_element(rnd.begin(), rnd.end(), comparator);
 		};
 
 		std::generate(aspirants.begin(), aspirants.end(), get_best);
 
-		gen = std::move(aspirants);
+		std::copy(aspirants.begin(), aspirants.end(), begin);
 	}
 };
 

@@ -29,13 +29,13 @@ struct BaseIndividual
 		genes(genes)
 	{	}
 
-	void compute_fitness(std::function<FitnessType(BaseIndividual<GeneType, FitnessType> &i)> fit_func)
+	void evaluate(std::function<FitnessType(BaseIndividual<GeneType, FitnessType> &i)> fit_func)
 	{
 		fitness = fit_func(*this);
 		valid = true;
 	}
 
-	bool is_valid(void)
+	bool is_valid(void) const
 	{
 		return valid;
 	}
@@ -46,11 +46,13 @@ struct BaseGenetic
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
+
 	using Generator = std::function<Individual(std::mt19937&)>;
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
-	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
+
+	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
 	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
@@ -66,9 +68,11 @@ struct BaseGenetic
 	Evaluate evaluate;
 	StopCond stop_cond;
 
-	Selection sel;
+	Selection select;
 	Crossover mate;
-	Mutation mut;
+	Mutation mutate;
+
+	bool output;
 
 	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		max_gen(50),
@@ -78,10 +82,11 @@ struct BaseGenetic
 		comparator(comp),
 		evaluate(eval),
 		stop_cond(stop),
-		sel(sel),
+		select(sel),
 		mate(mate),
-		mut(mut),
-		engine(rd())
+		mutate(mut),
+		engine(rd()),
+		output(true)
 	{
 		config();
 	}
@@ -94,12 +99,113 @@ struct BaseGenetic
 		comparator(comp),
 		evaluate(eval),
 		stop_cond(stop),
-		sel(sel),
+		select(sel),
 		mate(mate),
-		mut(mut),
-		engine(rd())
+		mutate(mut),
+		engine(rd()),
+		output(true)
 	{
 		config();
+	}
+
+	Individual operator()(void)
+	{
+		Population population(pop_size);
+
+		std::generate(population.begin(), population.end(), [this](){ return generator(engine); });
+		int evaluated_count = evaluate_pop(population.begin(), population.end());
+
+		Individual best = get_best(population.begin(), population.end(), comparator);
+		Individual worst = get_worst(population.begin(), population.end(), comparator);
+
+		if (output)
+		{
+			print_head();
+			print_stat(0, evaluated_count, worst.fitness, best.fitness);
+		}
+
+		if (stop_cond(best))
+		{
+			return best;
+		}
+
+		for(int iter = 1; iter <= max_gen; iter++)
+		{
+			selection_operator(population.begin(), population.end());
+			crossover_operator(population.begin(), population.end());
+			mutation_operator(population.begin(), population.end());
+			evaluated_count = evaluate_pop(population.begin(), population.end());
+
+			best = get_best(population.begin(), population.end(), comparator);
+			worst = get_worst(population.begin(), population.end(), comparator);
+
+			if (output)
+			{
+				print_stat(iter, evaluated_count, worst.fitness, best.fitness);
+			}
+
+			if(stop_cond(best))
+			{
+				return best;
+			}
+		}
+
+		return best;
+	}
+
+	virtual int evaluate_pop(typename Population::iterator begin, typename Population::iterator end)
+	{
+		int count = 0;
+
+		for(typename Population::iterator it = begin; it != end; it++)
+		{
+			if(!it->is_valid())
+			{
+				++count;
+				it->evaluate(evaluate);
+			}
+		}
+
+		return count;
+	}
+
+	virtual void selection_operator(typename Population::iterator begin, typename Population::iterator end)
+	{
+		select(begin, end, comparator, engine);
+	}
+
+	virtual void crossover_operator(typename Population::iterator begin, typename Population::iterator end)
+	{
+		mate(begin, end, engine);
+	}
+
+	virtual void mutation_operator(typename Population::iterator begin, typename Population::iterator end)
+	{
+		mutate(begin, end, engine);
+	}
+
+	static void print_head(void)
+	{
+		char ch = '\t';
+		std::cout << "iter" << ch << "evals" << ch << "low-fit" << ch << "high-fit" << std::endl;
+	}
+
+	static void print_stat(int iteration, int evaluated_count, FitnessType worst_val, FitnessType best_val)
+	{
+		char ch = '\t';
+		std::cout << iteration << ch << evaluated_count << ch << worst_val << ch << best_val << std::endl;
+	}
+
+	static Individual get_best(typename Population::iterator begin, typename Population::iterator end, Comparator comp)
+	{
+		auto best = std::min_element(begin, end, comp);
+		return *best;
+	}
+
+	static Individual get_worst(typename Population::iterator begin, typename Population::iterator end, Comparator comp)
+	{
+		auto worst = std::max_element(begin, end, comp);
+		return *worst;
 	}
 
 	void config(void)
@@ -116,38 +222,28 @@ struct BaseGenetic
 		if(underflow_elite)
 			throw std::underflow_error("Underflow elite value " + std::to_string(elite));
 		if(overflow_elite)
-			throw std::underflow_error("Overflow elite value " + std::to_string(elite));
-	}
-
-	static Individual get_best(Population &pop, Comparator comp)
-	{
-		auto best = std::min_element(pop.begin(), pop.end(), comp);
-		return *best;
-	}
-
-	static Individual get_worst(Population &pop, Comparator comp)
-	{
-		auto worst = std::max_element(pop.begin(), pop.end(), comp);
-		return *worst;
+			throw std::overflow_error("Overflow elite value " + std::to_string(elite));
 	}
 };
 
+/*
 template <typename GeneType, typename FitnessType>
-class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
+class SimpleGenetic: public BaseGenetic<GeneType, FitnessType>
 {
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
+
 	using Generator = std::function<Individual(std::mt19937&)>;
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
-	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
+
+	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
 	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
 	public:
 
-	int iter_until_convergence;
 	bool output;
 
 	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
@@ -160,7 +256,7 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 	{	
 	}
 
-	Individual operator()(void)
+	Individual operator()(void) override
 	{
 		Population population(this->pop_size);
 		std::generate(population.begin(), population.end(), [this](){ return this->generator(this->engine); });
@@ -203,7 +299,7 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 		return best;
 	}
 
-	private:
+	//private:
 
 	int one_iter(Population &pop)
 	{
@@ -230,7 +326,9 @@ class SimpleGenetic: private BaseGenetic<GeneType, FitnessType>
 		return evaluated_counter;
 	}
 };
+*/
 
+/*
 template <typename GeneType, typename FitnessType>
 std::ostream& operator<<(std::ostream &stream, const BaseIndividual<GeneType, FitnessType> &it)
 {
@@ -244,9 +342,10 @@ std::ostream& operator<<(std::ostream &stream, const BaseIndividual<GeneType, Fi
 
 	return stream;
 }
+*/
 
 template <typename GeneType, typename FitnessType>
-class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
+class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 {	
 	using Individual = BaseIndividual<GeneType, FitnessType>;
 	using Population = std::vector<Individual>;
@@ -254,7 +353,7 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 	using Comparator = std::function<bool(const Individual&, const Individual&)>;
 	using Evaluate = std::function<FitnessType(Individual&)>;
 	using StopCond = std::function<bool(Individual&)>;
-	using Selection = std::function<void(Population&, Comparator, std::mt19937&)>;
+	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
 	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 	using Mutation =  std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
 
@@ -266,9 +365,6 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 	thread_pool pool;
 
 	public:
-
-	bool output;
-	int iter_until_convergence;
 
 	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
@@ -282,6 +378,7 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 		pool(threads_count)
 	{	}
 
+	/*
 	Individual operator()(void)
 	{
 		Population population(this->pop_size);
@@ -312,9 +409,9 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 
 		return this->get_best(population, this->comparator);
 	}
+	*/
 
-	private:
-
+	/*
 	void init_pop(Population &pop)
 	{
 		tasks_count = threads_count;
@@ -340,28 +437,31 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 		std::unique_lock<std::mutex> locker(mutex);
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
+	*/
 
-	int compute_fitness(Population &pop)
+	int evaluate_pop(typename Population::iterator begin, typename Population::iterator end) override
 	{
 		evaluated_counter = 0;
 		tasks_count = threads_count;
 
-		int h = this->pop_size / threads_count;
-		int r = this->pop_size % threads_count;
+		int pop_size = std::distance(begin, end);
+
+		int h = pop_size / threads_count;
+		int r = pop_size % threads_count;
 		int chunk = 0;
 
 		for(int i = 0; i < threads_count; i++)
 		{
 			int t = i < r ? 1 : 0;
-			auto begin = pop.begin() + chunk;
-			auto end = pop.begin() + chunk + t + h;
+			auto local_begin = begin + chunk;
+			auto local_end = begin + chunk + t + h;
 
-			pool.push([this, begin, end](){
-				std::for_each(begin, end, [this](Individual &i){
-						if (!i.valid)
+			pool.push([this, local_begin, local_end](){
+				std::for_each(local_begin, local_end, [this](Individual &i){
+						if (!i.is_valid())
 						{
 							++evaluated_counter;
-							i.compute_fitness(this->evaluate);
+							i.evaluate(this->evaluate);
 						}
 				});
 				if (!(--tasks_count))
@@ -379,21 +479,55 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 		return evaluated_counter;
 	}
 
-	void mutation_parallel(Population &pop)
+	void crossover_operator(typename Population::iterator begin, typename Population::iterator end) override
 	{
 		tasks_count = threads_count;
-		int h = this->pop_size / threads_count;
-		int r = this->pop_size % threads_count;
+
+		int pop_size = std::distance(begin, end);
+
+		int h = pop_size / threads_count;
+		int r = pop_size % threads_count;
 		int chunk = 0;
 
 		for(int i = 0; i < threads_count; i++)
 		{
 			int t = i < r ? 1 : 0;
-			auto begin = pop.begin() + chunk;
-			auto end = pop.begin() + chunk + t + h;
+			auto local_begin = begin + chunk;
+			auto local_end = begin + chunk + t + h;
 
-			pool.push([this, begin, end](){
-				this->mut(begin, end, this->engine);
+			pool.push([this, local_begin, local_end](){
+				this->mate(local_begin, local_end, this->engine);
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
+
+			chunk += t + h;
+		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
+	}
+	
+	void mutation_operator(typename Population::iterator begin, typename Population::iterator end) override
+	{
+		tasks_count = threads_count;
+
+		int pop_size = std::distance(begin, end);
+
+		int h = pop_size / threads_count;
+		int r = pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+			auto local_begin = begin + chunk;
+			auto local_end = begin + chunk + t + h;
+
+			pool.push([this, local_begin, local_end](){
+				this->mutate(local_begin, local_end, this->engine);
 				if (!(--tasks_count))
 				{
 					cond_var.notify_one();
@@ -407,34 +541,9 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
 
-	void mate_parallel(Population &pop)
-	{
-		tasks_count = threads_count;
-		int h = this->pop_size / threads_count;
-		int r = this->pop_size % threads_count;
-		int chunk = 0;
 
-		for(int i = 0; i < threads_count; i++)
-		{
-			int t = i < r ? 1 : 0;
-			auto begin = pop.begin() + chunk;
-			auto end = pop.begin() + chunk + t + h;
 
-			pool.push([this, begin, end](){
-				this->mate(begin, end, this->engine);
-				if (!(--tasks_count))
-				{
-					cond_var.notify_one();
-				}
-			});
-
-			chunk += t + h;
-		}
-
-		std::unique_lock<std::mutex> locker(mutex);
-		cond_var.wait(locker, [this](){ return !tasks_count; });
-	}
-
+	/*
 	void print(Population &pop)
 	{
 		for(auto &i: pop)
@@ -446,6 +555,7 @@ class AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 			std::cout << ' ' << i.fitness << std::endl;
 		}
 	}
+	*/
 };
 
 } // namespace ga
