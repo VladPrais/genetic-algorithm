@@ -572,6 +572,172 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 	*/
 };
 
+template <typename GeneType, typename FitnessType>
+auto make_genetic()
+{
+	return 0;
+}
+
 } // namespace ga
 
 #endif
+
+/*
+#include <cmath>
+#include <chrono>
+#include <functional>
+#include <iostream>
+#include <random>
+#include <vector>
+
+const int lim_i = 2e3;
+const int lim_j = 1e3;
+const int lim_create = 1e8;
+
+struct A
+{
+	typedef std::function<void(int)> F1;
+	typedef std::function<void(int)> F2;
+	typedef std::function<void(int)> F3;
+
+	F1 f1;
+	F2 f2;
+	F3 f3;
+
+	A(F1 f1, F2 f2, F3 f3): f1(f1), f2(f2), f3(f3)
+	{	}
+
+	void operator()(void)
+	{
+		for(int i = 0; i < lim_i; i++)
+		{
+			for(int j = 0; j < lim_j; j++)
+			{
+				f1(j);
+				f2(j);
+				f3(j);
+			}
+		}
+	}
+};
+
+template <typename F1, typename F2, typename F3>
+struct B
+{
+	F1 f1;
+	F2 f2;
+	F3 f3;
+
+	B(F1 f1, F2 f2, F3 f3): f1(f1), f2(f2), f3(f3)
+	{	}
+
+	void operator()(void)
+	{
+		for(int i = 0; i < lim_i; i++)
+		{
+			for(int j = 0; j < lim_j; j++)
+			{
+				f1(j);
+				f2(j);
+				f3(j);
+			}
+		}
+	}
+};
+
+template <typename F1, typename F2, typename F3>
+auto make_B(F1 f1, F2 f2, F3 f3)
+{
+	return B<F1, F2, F3>(f1, f2, f3);
+}
+
+struct f1
+{
+	f1() = default;
+	void operator()(int n)
+	{
+		int s = 0;
+		for(int i = 0; i < n; i++)
+		{
+			s += std::sqrt(i);
+		}
+	}
+};
+
+struct f2
+{
+	f2() = default;
+	void operator()(int n)
+	{
+		f1()(n);
+	}
+};
+
+struct f3
+{
+	f3() = default;
+	void operator()(int n)
+	{
+		f2()(n);
+	}
+};
+
+int main(void)
+{
+	f1 f_1;
+	f2 f_2;
+	f3 f_3;
+
+	auto t1 = std::chrono::steady_clock::now();
+	for(int i = 0; i < lim_create; i++)
+		A a(f_3, f_3, f_3);
+	auto t2 = std::chrono::steady_clock::now();
+	std::chrono::duration<double> res = t2 - t1;
+	std::cout << res.count() << " seconds object A was initialized" << std::endl;
+
+	A a(f_3, f_3, f_3);
+
+	t1 = std::chrono::steady_clock::now();
+	a();
+	t2 = std::chrono::steady_clock::now();
+	res = t2 - t1;
+	std::cout << res.count() << " seconds operator A::operator() was using" << std::endl;
+
+	t1 = std::chrono::steady_clock::now();
+	for(int i = 0; i < lim_create; i++)
+	{
+		auto b = make_B(f_3, f_3, f_3);
+	}
+	t2 = std::chrono::steady_clock::now();
+	res = t2 - t1;
+	std::cout << res.count() << " seconds object B was initialized using make_B" << std::endl;
+
+	auto b = make_B(f_3, f_3, f_3);
+
+	t1 = std::chrono::steady_clock::now();
+	b();
+	t2 = std::chrono::steady_clock::now();
+	res = t2 - t1;
+	std::cout << res.count() << " seconds operator B::operator() was using" << std::endl;
+
+	t1 = std::chrono::steady_clock::now();
+	for(int i = 0; i < lim_create; i++)
+	{
+		B<f1, f2, f3> b(f_1, f_2, f_3);
+	}
+	t2 = std::chrono::steady_clock::now();
+	res = t2 - t1;
+	std::cout << res.count() << " seconds object B was initialized" << std::endl;
+
+	B<f1, f2, f3> b2(f_1, f_2, f_3);
+
+	t1 = std::chrono::steady_clock::now();
+	b2();
+	t2 = std::chrono::steady_clock::now();
+	res = t2 - t1;
+	std::cout << res.count() << " seconds operator B::operator() was using" << std::endl;
+
+	return 0;
+}
+
+*/
