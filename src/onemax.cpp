@@ -12,7 +12,7 @@ typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
 std::uniform_int_distribution dist(0, 1);
 
-const size_t LEN_GENES = 4e2;
+const size_t LEN_GENES = 1e2;
 
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
 Individual generator(std::mt19937 &engine)
@@ -40,7 +40,6 @@ bool stop_cond(Individual& i)
 	return false;
 }
 
-/*
 std::ostream& operator<<(std::ostream &stream, const Individual &i)
 {
 	for(auto g: i.genes)
@@ -51,7 +50,6 @@ std::ostream& operator<<(std::ostream &stream, const Individual &i)
 
 	return stream;
 }
-*/
 
 bool comparator(const Individual &lhs, const Individual &rhs)
 {
@@ -60,7 +58,7 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 3e4, max_generations = 300, elite = 0;
+	int pop_size = 1e5, max_generations = 300, elite = 0;
 	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.03;
 	int tourn_size = 3;
 
@@ -68,9 +66,11 @@ int main(void)
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
-	ga::BaseGenetic<GeneType, FitnessType> g_alg(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::AdvancedGenetic<GeneType, FitnessType> g_alg(generator, comparator, evaluate, stop_cond, selection, crossover, mutation, max_generations, pop_size, elite);
+//	auto g_alg = ga::make_genetic<GeneType, FitnessType>(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
 
-	Individual v = g_alg();
+	Individual best = g_alg().best_ever;
+	std::cout << best << std::endl;
 
 	return 0;
 }

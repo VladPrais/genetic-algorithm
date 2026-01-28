@@ -8,7 +8,6 @@
 #include <random>
 #include <vector>
 
-#include "operators_ga.h"
 #include "../../thread-pool/src/thread_pool.h"
 
 namespace ga {
@@ -41,20 +40,34 @@ struct BaseIndividual
 	}
 };
 
+template <typename Individual>
+struct GeneticOutput
+{
+	int generation_count;
+	std::vector<Individual> hall_of_fame;
+	Individual best_ever;
+
+	GeneticOutput(int gen_count, const Individual &best):
+		generation_count(gen_count),
+		best_ever(best)
+	{	}
+};
+
+//template <typename GeneType, typename FitnessType, typename Selection, typename Crossover, typename Mutation>
 template <typename GeneType, typename FitnessType>
 struct BaseGenetic
 {
-	using Individual = BaseIndividual<GeneType, FitnessType>;
-	using Population = std::vector<Individual>;
+	typedef BaseIndividual<GeneType, FitnessType> Individual;
+	typedef std::vector<Individual> Population;
 
-	using Generator = std::function<Individual(std::mt19937&)>;
-	using Comparator = std::function<bool(const Individual&, const Individual&)>;
-	using Evaluate = std::function<FitnessType(Individual&)>;
-	using StopCond = std::function<bool(Individual&)>;
+	typedef std::function<Individual(std::mt19937&)> Generator;
+	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
+	typedef std::function<FitnessType(Individual&)> Evaluate;
+	typedef std::function<bool(Individual&)> StopCond ;
 
-	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
-	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
-	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Crossover;
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Mutation;
 
 	std::random_device rd;
 	std::vector<std::mt19937> mt;
@@ -74,23 +87,7 @@ struct BaseGenetic
 
 	bool output;
 
-	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		max_gen(50),
-		pop_size(100),
-		elite(10),
-		generator(gen),
-		comparator(comp),
-		evaluate(eval),
-		stop_cond(stop),
-		select(sel),
-		mate(mate),
-		mutate(mut),
-		output(true)
-	{
-		config();
-	}
-
-	BaseGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
+	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=50, int pop_size=100, int elite=10):
 		max_gen(max_gen),
 		pop_size(pop_size),
 		elite(elite),
@@ -106,13 +103,19 @@ struct BaseGenetic
 		config();
 	}
 
-	Individual operator()(void)
+	GeneticOutput<Individual> operator()(void)
 	{
 		init_mt();
 
 		Population population(pop_size);
 
-		std::generate(population.begin(), population.end(), [this](){ return generator(mt[0]); });
+		init_pop(population.begin(), population.end());
+
+		if (output)
+		{
+			std::cout << pop_size << " individuals were initialized" << std::endl;
+		}
+
 		int evaluated_count = evaluate_pop(population.begin(), population.end());
 
 		Individual best = get_best(population.begin(), population.end(), comparator);
@@ -126,14 +129,26 @@ struct BaseGenetic
 
 		if (stop_cond(best))
 		{
-			return best;
+			if (output)
+				std::cout << "Success!" << std::endl;
+
+			GeneticOutput gen_out(0, best);
+			return gen_out;
 		}
+
+		Population hall_of_fame(elite);
 
 		for(int iter = 1; iter <= max_gen; iter++)
 		{
+			/*
+			std::nth_element(population.begin(), population.begin() + elite, population.end());
+			std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+			*/
+
 			selection_operator(population.begin(), population.end());
 			crossover_operator(population.begin(), population.end());
 			mutation_operator(population.begin(), population.end());
+
 			evaluated_count = evaluate_pop(population.begin(), population.end());
 
 			best = get_best(population.begin(), population.end(), comparator);
@@ -146,11 +161,16 @@ struct BaseGenetic
 
 			if(stop_cond(best))
 			{
-				return best;
+				if (output)
+					std::cout << "Success!" << std::endl;
+
+				GeneticOutput gen_out(iter, best);
+				return gen_out;
 			}
 		}
 
-		return best;
+		GeneticOutput gen_out(max_gen, best);
+		return gen_out;
 	}
 
 	virtual int evaluate_pop(typename Population::iterator begin, typename Population::iterator end)
@@ -184,6 +204,17 @@ struct BaseGenetic
 		mutate(begin, end, mt[0]);
 	}
 
+	virtual void init_pop(typename Population::iterator begin, typename Population::iterator end)
+	{
+		std::generate(begin, end, [this](){ return generator(mt[0]); });
+	}
+
+	virtual void init_mt(void)
+	{
+		std::random_device rd;
+		mt.push_back(std::mt19937(rd()));
+	}
+
 	static void print_head(void)
 	{
 		char ch = '\t';
@@ -208,12 +239,6 @@ struct BaseGenetic
 		return *worst;
 	}
 
-	virtual void init_mt(void)
-	{
-		std::random_device rd;
-		mt.push_back(std::mt19937(rd()));
-	}
-
 	void config(void)
 	{
 		bool underflow_max_gen = max_gen <= 0;
@@ -221,147 +246,31 @@ struct BaseGenetic
 		bool underflow_elite = elite < 0;
 		bool overflow_elite = elite >= pop_size;
 
-		if(underflow_max_gen)
+		if (underflow_max_gen)
 			throw std::underflow_error("Underflow max generations value " + std::to_string(max_gen));
-		if(underflow_pop_size)
+		if (underflow_pop_size)
 			throw std::underflow_error("Underflow population size value " + std::to_string(pop_size));
-		if(underflow_elite)
+		if (underflow_elite)
 			throw std::underflow_error("Underflow elite value " + std::to_string(elite));
-		if(overflow_elite)
+		if (overflow_elite)
 			throw std::overflow_error("Overflow elite value " + std::to_string(elite));
 	}
 };
 
-/*
 template <typename GeneType, typename FitnessType>
-class SimpleGenetic: public BaseGenetic<GeneType, FitnessType>
-{
-	using Individual = BaseIndividual<GeneType, FitnessType>;
-	using Population = std::vector<Individual>;
-
-	using Generator = std::function<Individual(std::mt19937&)>;
-	using Comparator = std::function<bool(const Individual&, const Individual&)>;
-	using Evaluate = std::function<FitnessType(Individual&)>;
-	using StopCond = std::function<bool(Individual&)>;
-
-	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
-	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
-	using Mutation = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
-
-	public:
-
-	bool output;
-
-	SimpleGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut)
-	{	
-	}
-
-	SimpleGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut)
-	{	
-	}
-
-	Individual operator()(void) override
-	{
-		Population population(this->pop_size);
-		std::generate(population.begin(), population.end(), [this](){ return this->generator(this->engine); });
-		int evaluated_counter = compute_fitness(population);
-
-		Individual best = this->get_best(population, this->comparator);
-		Individual worst = this->get_worst(population, this->comparator);
-
-		auto ch = '\t';
-
-		if (output)
-		{
-			std::cout << "iter" << ch << "evals" << ch << "low-fit" << ch << "high-fit" << std::endl;
-			std::cout << 0 << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << std::endl;
-		}
-
-		if(this->stop_cond(best))
-		{
-			//std::cout << "Success!" << std::endl;
-			return best;
-		}
-
-		for(iter_until_convergence = 1; iter_until_convergence <= this->max_gen; iter_until_convergence++)
-		{
-			evaluated_counter = one_iter(population);
-
-			best = this->get_best(population, this->comparator);
-			worst = this->get_worst(population, this->comparator);
-
-			if (output)
-				std::cout << iter_until_convergence << ch << evaluated_counter << ch << worst.fitness << ch << best.fitness << ch << std::endl;
-
-			if(this->stop_cond(best))
-			{
-				//std::cout << "Success!" << std::endl;
-				return best;
-			}
-		}	
-
-		return best;
-	}
-
-	//private:
-
-	int one_iter(Population &pop)
-	{
-		this->sel(pop, this->comparator, this->engine);
-		this->mate(pop.begin(), pop.end(), this->engine);
-		this->mut(pop.begin(), pop.end(), this->engine);
-
-		return compute_fitness(pop);
-	}
-
-	int compute_fitness(Population &pop)
-	{
-		int evaluated_counter = 0;
-
-		for(Individual &i: pop)
-		{
-			if(!i.is_valid())
-			{
-				i.compute_fitness(this->evaluate);
-
-				evaluated_counter++;
-			}
-		}
-		return evaluated_counter;
-	}
-};
-*/
-
-/*
-template <typename GeneType, typename FitnessType>
-std::ostream& operator<<(std::ostream &stream, const BaseIndividual<GeneType, FitnessType> &it)
-{
-	for(auto i = it.genes.begin(); i != it.genes.end(); i++)
-	{
-		stream << *i;
-		if (i + 1 != it.genes.end())
-			stream << ' ';
-	}
-	stream << ' ' << it.fitness;
-
-	return stream;
-}
-*/
-
-template <typename GeneType, typename FitnessType>
-class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
+struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 {	
-	using Individual = BaseIndividual<GeneType, FitnessType>;
-	using Population = std::vector<Individual>;
-	using Generator = std::function<Individual(std::mt19937&)>;
-	using Comparator = std::function<bool(const Individual&, const Individual&)>;
-	using Evaluate = std::function<FitnessType(Individual&)>;
-	using StopCond = std::function<bool(Individual&)>;
-	using Selection = std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)>;
-	using Crossover = std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
-	using Mutation =  std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)>;
+	typedef BaseIndividual<GeneType, FitnessType> Individual;
+	typedef std::vector<Individual> Population;
+
+	typedef std::function<Individual(std::mt19937&)> Generator;
+	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
+	typedef std::function<FitnessType(Individual&)> Evaluate;
+	typedef std::function<bool(Individual&)> StopCond ;
+
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Crossover;
+	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Mutation;
 
 	std::atomic<int> tasks_count;
 	std::atomic<int> evaluated_counter;
@@ -372,52 +281,12 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 
 	public:
 
-	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut),
+	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int pop_size=1000, int max_gen=200, int elite=50):
+		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut, pop_size, max_gen, elite),
 		threads_count(std::thread::hardware_concurrency()),
 		pool(threads_count)
 	{	}
 
-	AdvancedGenetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut):
-		BaseGenetic<GeneType, FitnessType>(max_gen, pop_size, elite, gen, comp, eval, stop, sel, mate, mut),
-		threads_count(std::thread::hardware_concurrency()),
-		pool(threads_count)
-	{	}
-
-	/*
-	Individual operator()(void)
-	{
-		Population population(this->pop_size);
-		std::generate(population.begin(), population.end(), [this](){ return this->generator(this->engine); });
-
-		for(iter_until_convergence = 0; iter_until_convergence < this->max_gen; iter_until_convergence++)
-		{
-			this->sel(population, this->comparator, this->engine);
-			mate_parallel(population);
-			mutation_parallel(population);
-
-			int eval_count = compute_fitness(population);
-
-			Individual best = this->get_best(population, this->comparator);
-			Individual worst = this->get_worst(population, this->comparator);
-
-			if (output)
-			{
-				std::cout << iter_until_convergence << '\t' << eval_count << '\t' << worst.fitness << '\t' << best.fitness << std::endl;
-			}
-
-			if (this->stop_cond(best))
-			{
-				std::cout << "Success" << std::endl;
-				return best;
-			}
-		}
-
-		return this->get_best(population, this->comparator);
-	}
-	*/
-
-	/*
 	void init_pop(Population &pop)
 	{
 		tasks_count = threads_count;
@@ -443,7 +312,6 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 		std::unique_lock<std::mutex> locker(mutex);
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
-	*/
 
 	int evaluate_pop(typename Population::iterator begin, typename Population::iterator end) override
 	{
@@ -556,188 +424,290 @@ class AdvancedGenetic: public BaseGenetic<GeneType, FitnessType>
 			this->mt.push_back(std::mt19937(rd()));
 		}
 	}
+};
+
+/*
+template <typename GeneType, typename FitnessType, typename Generator, typename Comparator, typename Evaluate, typename StopCond, typename Selection, typename Crossover, typename Mutation>
+auto make_genetic(int max_gen, int pop_size, int elite, Generator gen, Comparator comp, Evaluate eval, StopCond stop_cond, Selection sel, Crossover mate, Mutation mut)
+{
+	return BaseGenetic<GeneType, FitnessType, Selection, Crossover, Mutation>(max_gen, pop_size, elite, gen, comp, eval, stop_cond, sel, mate, mut);
+}
+*/
+
+/*
+ * Selection operator
+ */
+
+template <typename Individual>
+std::vector<Individual> sel_random(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end , size_t n, std::mt19937 &engine)
+{
+	int pop_size = std::distance(begin, end);
+	std::vector<Individual> v(n);
+	std::uniform_int_distribution<int> dist(0, pop_size - 1);
+
+	std::generate(v.begin(), v.end(), [&dist, &engine, begin](){ return *(begin + dist(engine)); });
+
+	return v;
+}
+
+template <typename Individual>
+class tournament
+{
+	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
+
+	int tourn_size;
+
+	public:
+
+	tournament(void): tourn_size(3)
+	{	}
+
+	tournament(int tourn_size): tourn_size(tourn_size)
+	{	}
+
+	void operator()(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end , Comparator comparator, std::mt19937 &engine)
+	{
+		int pop_size = std::distance(begin, end);
+		std::vector<Individual> aspirants(pop_size);
+
+		auto get_best = [&](){
+			std::vector<Individual> rnd = sel_random<Individual>(begin, end, tourn_size, engine);
+			return *std::min_element(rnd.begin(), rnd.end(), comparator);
+		};
+
+		std::generate(aspirants.begin(), aspirants.end(), get_best);
+
+		std::copy(aspirants.begin(), aspirants.end(), begin);
+	}
+};
+
+/*
+ * Crossover operator
+ */
+
+template <typename Individual>
+class crossover
+{
+	typedef std::function<void(Individual&, Individual&, std::mt19937&)> Crossover;
+
+	double cxpb;
+	Crossover mate_func;
+	std::uniform_real_distribution<double> pb;
+
+	public:
+	
+	crossover(Crossover mate_func):
+		cxpb(0.7),
+		mate_func(mate_func),
+		pb(0.0, 1.0)
+	{	
+		config();
+	}
+
+	crossover(double cxpb, Crossover mate_func):
+		cxpb(cxpb),
+		mate_func(mate_func),
+		pb(0.0, 1.0)
+	{	
+		config();
+	}
 
 	/*
-	void print(Population &pop)
+	void operator()(std::vector<Individual> &aspirants, std::mt19937 &engine)
 	{
-		for(auto &i: pop)
+		int pop_size = aspirants.size();
+
+		if(pop_size % 2 != 0)
+			throw std::logic_error("Population size have to be even");
+
+		for(int i = 0; i < pop_size; i += 2)
 		{
-			for(auto &g: i.genes)
+			double p = pb(engine);
+
+			if(p < cxpb)
 			{
-				std::cout << g << ' ';
+				mate_func(aspirants[i], aspirants[i + 1], engine);
+
+				aspirants[i].valid = false;
+				aspirants[i + 1].valid = false;
 			}
-			std::cout << ' ' << i.fitness << std::endl;
 		}
 	}
 	*/
+	
+	template <typename Iterator>
+	void operator()(Iterator begin, Iterator end, std::mt19937 &engine)
+	{
+		int pop_size = std::distance(begin, end);
+		int inc = 0;
+
+		if(pop_size % 2 != 0)
+			inc = 1;
+//			throw std::logic_error("Population size have to be even");
+
+		for(Iterator i = begin; i + inc != end; i += 2)
+		{
+			double p = pb(engine);
+
+			if(p < cxpb)
+			{
+				mate_func(*i, *(i + 1), engine);
+
+				i->valid = false;
+				(i + 1)->valid = false;
+			}
+		}
+	}
+
+	private:
+
+	void config(void)
+	{
+		if(cxpb > 1.0)
+			throw std::overflow_error("Overflow crossover probability: " + std::to_string(cxpb));
+		if(cxpb < 0.0)
+			throw std::underflow_error("Underflow crossover probability: " + std::to_string(cxpb));
+	}
 };
 
-template <typename GeneType, typename FitnessType>
-auto make_genetic()
+template <typename Individual>
+struct cx_one_point
 {
-	return 0;
-}
+	void operator()(Individual &lhs, Individual &rhs, std::mt19937 &engine)
+	{
+		int size = std::min(lhs.genes.size(), rhs.genes.size());
+		std::uniform_int_distribution<int> dist(1, size - 1);
+		int point = dist(engine);
+
+		for(int i = 0; i < point; i++)
+		{
+			std::swap(lhs.genes[i], rhs.genes[i]);
+		}
+	}
+};
+
+/*
+ * Mutation operator
+ */
+
+template <typename Individual>
+class mutation
+{
+	typedef std::function<void(Individual&, double, std::mt19937&)> Mutation;
+	std::uniform_real_distribution<double> pb;
+
+	double mtpb;
+	double mgpb;
+	Mutation mut_func;
+
+	public:
+
+	mutation(void):
+		mtpb(0.1),
+		mgpb(0.05),
+		pb(0.0, 1.0)
+	{
+		config();
+	}
+
+	mutation(double mtpb, double mgpb, Mutation mut_func):
+		mtpb(mtpb),
+		mgpb(mgpb),
+		pb(0.0, 1.0),
+		mut_func(mut_func)
+	{
+		config();
+	}
+
+	/*
+	void operator()(std::vector<Individual> &child, std::mt19937 &engine)
+	{
+		int pop_size = child.size();
+
+		for(int i = 0; i < pop_size; i++)
+		{
+			if(pb(engine) < mtpb)
+			{
+				mut_func(child[i], mgpb, engine);
+				child[i].valid = false;
+			}
+		}
+	}
+	*/
+
+	void operator()(typename std::vector<Individual>::iterator begin, typename std::vector<Individual>::iterator end, std::mt19937 &engine)
+	{
+		for(auto i = begin; i != end; i++)
+		{
+			if(pb(engine) < mtpb)
+			{
+				mut_func(*i, mgpb, engine);
+				i->valid = false;
+			}
+		}
+	}
+
+	private:
+
+	void config(void)
+	{
+		if(mtpb > 1.0)
+			throw std::overflow_error("Overflow mutation probability: " + std::to_string(mtpb));
+		if(mgpb > 1.0)
+			throw std::overflow_error("Overflow mutation of gene probability: " + std::to_string(mgpb));
+		if(mtpb < 0.0)
+			throw std::underflow_error("Underflow mutation probability: " + std::to_string(mtpb));
+		if(mgpb < 0.0)
+			throw std::underflow_error("Underflow mutation of gene probability: " + std::to_string(mgpb));
+	}
+};
+
+template <typename Individual>
+struct mut_gaussian
+{
+	double mu;
+	double sigma;
+	std::uniform_real_distribution<double> pb;
+
+	mut_gaussian(void): mu(0.0), sigma(1.0), pb(0.0, 1.0)
+	{	}
+
+	mut_gaussian(double mu, double sigma): mu(mu), sigma(sigma), pb(0.0, 1.0)
+	{	}
+
+	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
+	{
+		std::normal_distribution<double> norm(mu, sigma);
+		int size = object.genes.size();
+
+		for(int i = 0; i < size; i++)
+		{
+			if(pb(engine) < mgpb)
+				object.genes[i] += norm(engine);
+		}
+	}
+};
+
+template <typename Individual>
+struct mut_inverse
+{
+	std::uniform_real_distribution<double> pb;
+
+	mut_inverse(void): pb(0.0, 1.0)
+	{	}
+
+	void operator()(Individual &object, double mgpb, std::mt19937 &engine)
+	{
+		int size = object.genes.size();
+
+		for(int i = 0; i < size; i++)
+		{
+			if(pb(engine) < mgpb)
+				object.genes[i] = !object.genes[i];
+		}
+	}
+};
 
 } // namespace ga
 
 #endif
-
-/*
-#include <cmath>
-#include <chrono>
-#include <functional>
-#include <iostream>
-#include <random>
-#include <vector>
-
-const int lim_i = 2e3;
-const int lim_j = 1e3;
-const int lim_create = 1e8;
-
-struct A
-{
-	typedef std::function<void(int)> F1;
-	typedef std::function<void(int)> F2;
-	typedef std::function<void(int)> F3;
-
-	F1 f1;
-	F2 f2;
-	F3 f3;
-
-	A(F1 f1, F2 f2, F3 f3): f1(f1), f2(f2), f3(f3)
-	{	}
-
-	void operator()(void)
-	{
-		for(int i = 0; i < lim_i; i++)
-		{
-			for(int j = 0; j < lim_j; j++)
-			{
-				f1(j);
-				f2(j);
-				f3(j);
-			}
-		}
-	}
-};
-
-template <typename F1, typename F2, typename F3>
-struct B
-{
-	F1 f1;
-	F2 f2;
-	F3 f3;
-
-	B(F1 f1, F2 f2, F3 f3): f1(f1), f2(f2), f3(f3)
-	{	}
-
-	void operator()(void)
-	{
-		for(int i = 0; i < lim_i; i++)
-		{
-			for(int j = 0; j < lim_j; j++)
-			{
-				f1(j);
-				f2(j);
-				f3(j);
-			}
-		}
-	}
-};
-
-template <typename F1, typename F2, typename F3>
-auto make_B(F1 f1, F2 f2, F3 f3)
-{
-	return B<F1, F2, F3>(f1, f2, f3);
-}
-
-struct f1
-{
-	f1() = default;
-	void operator()(int n)
-	{
-		int s = 0;
-		for(int i = 0; i < n; i++)
-		{
-			s += std::sqrt(i);
-		}
-	}
-};
-
-struct f2
-{
-	f2() = default;
-	void operator()(int n)
-	{
-		f1()(n);
-	}
-};
-
-struct f3
-{
-	f3() = default;
-	void operator()(int n)
-	{
-		f2()(n);
-	}
-};
-
-int main(void)
-{
-	f1 f_1;
-	f2 f_2;
-	f3 f_3;
-
-	auto t1 = std::chrono::steady_clock::now();
-	for(int i = 0; i < lim_create; i++)
-		A a(f_3, f_3, f_3);
-	auto t2 = std::chrono::steady_clock::now();
-	std::chrono::duration<double> res = t2 - t1;
-	std::cout << res.count() << " seconds object A was initialized" << std::endl;
-
-	A a(f_3, f_3, f_3);
-
-	t1 = std::chrono::steady_clock::now();
-	a();
-	t2 = std::chrono::steady_clock::now();
-	res = t2 - t1;
-	std::cout << res.count() << " seconds operator A::operator() was using" << std::endl;
-
-	t1 = std::chrono::steady_clock::now();
-	for(int i = 0; i < lim_create; i++)
-	{
-		auto b = make_B(f_3, f_3, f_3);
-	}
-	t2 = std::chrono::steady_clock::now();
-	res = t2 - t1;
-	std::cout << res.count() << " seconds object B was initialized using make_B" << std::endl;
-
-	auto b = make_B(f_3, f_3, f_3);
-
-	t1 = std::chrono::steady_clock::now();
-	b();
-	t2 = std::chrono::steady_clock::now();
-	res = t2 - t1;
-	std::cout << res.count() << " seconds operator B::operator() was using" << std::endl;
-
-	t1 = std::chrono::steady_clock::now();
-	for(int i = 0; i < lim_create; i++)
-	{
-		B<f1, f2, f3> b(f_1, f_2, f_3);
-	}
-	t2 = std::chrono::steady_clock::now();
-	res = t2 - t1;
-	std::cout << res.count() << " seconds object B was initialized" << std::endl;
-
-	B<f1, f2, f3> b2(f_1, f_2, f_3);
-
-	t1 = std::chrono::steady_clock::now();
-	b2();
-	t2 = std::chrono::steady_clock::now();
-	res = t2 - t1;
-	std::cout << res.count() << " seconds operator B::operator() was using" << std::endl;
-
-	return 0;
-}
-
-*/
