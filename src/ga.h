@@ -59,6 +59,7 @@ struct BaseGenetic
 {
 	typedef BaseIndividual<GeneType, FitnessType> Individual;
 	typedef std::vector<Individual> Population;
+	typedef typename Population::iterator Iterator;
 
 	typedef std::function<Individual(std::mt19937&)> Generator;
 	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
@@ -140,16 +141,17 @@ struct BaseGenetic
 
 		for(int iter = 1; iter <= max_gen; iter++)
 		{
-			/*
-			std::nth_element(population.begin(), population.begin() + elite, population.end());
+			std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
 			std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
-			*/
 
 			selection_operator(population.begin(), population.end());
 			crossover_operator(population.begin(), population.end());
 			mutation_operator(population.begin(), population.end());
 
 			evaluated_count = evaluate_pop(population.begin(), population.end());
+
+			std::nth_element(population.begin(), population.begin() + elite, population.end(), [this](Individual &lhs, Individual &rhs){ return !this->comparator(lhs, rhs); });
+			std::copy(hall_of_fame.begin(), hall_of_fame.begin() + elite, population.begin());
 
 			best = get_best(population.begin(), population.end(), comparator);
 			worst = get_worst(population.begin(), population.end(), comparator);
@@ -173,11 +175,11 @@ struct BaseGenetic
 		return gen_out;
 	}
 
-	virtual int evaluate_pop(typename Population::iterator begin, typename Population::iterator end)
+	virtual int evaluate_pop(Iterator begin, Iterator end)
 	{
 		int count = 0;
 
-		for(typename Population::iterator it = begin; it != end; it++)
+		for(Iterator it = begin; it != end; it++)
 		{
 			if(!it->is_valid())
 			{
@@ -189,22 +191,22 @@ struct BaseGenetic
 		return count;
 	}
 
-	virtual void selection_operator(typename Population::iterator begin, typename Population::iterator end)
+	virtual void selection_operator(Iterator begin, Iterator end)
 	{
 		select(begin, end, comparator, mt[0]);
 	}
 
-	virtual void crossover_operator(typename Population::iterator begin, typename Population::iterator end)
+	virtual void crossover_operator(Iterator begin, Iterator end)
 	{
 		mate(begin, end, mt[0]);
 	}
 
-	virtual void mutation_operator(typename Population::iterator begin, typename Population::iterator end)
+	virtual void mutation_operator(Iterator begin, Iterator end)
 	{
 		mutate(begin, end, mt[0]);
 	}
 
-	virtual void init_pop(typename Population::iterator begin, typename Population::iterator end)
+	virtual void init_pop(Iterator begin, Iterator end)
 	{
 		std::generate(begin, end, [this](){ return generator(mt[0]); });
 	}
@@ -227,13 +229,13 @@ struct BaseGenetic
 		std::cout << iteration << ch << evaluated_count << ch << worst_val << ch << best_val << std::endl;
 	}
 
-	static Individual get_best(typename Population::iterator begin, typename Population::iterator end, Comparator comp)
+	static Individual get_best(Iterator begin, Iterator end, Comparator comp)
 	{
 		auto best = std::min_element(begin, end, comp);
 		return *best;
 	}
 
-	static Individual get_worst(typename Population::iterator begin, typename Population::iterator end, Comparator comp)
+	static Individual get_worst(Iterator begin, Iterator end, Comparator comp)
 	{
 		auto worst = std::max_element(begin, end, comp);
 		return *worst;
