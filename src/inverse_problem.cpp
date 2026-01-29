@@ -65,14 +65,24 @@ std::uniform_real_distribution dist_coefs(-10.0, 10.0);
 const int LEN_GENES = 3;
 const int N = 20;
 const double a = 1.0, b = 2.0; // bounds
-vector<double> Y0{1.0, 1.0, 2.0}, X(N); // initial conditions and x-nodes
+vector<double> Y0{0.0, 1.0, 2.0}, X(N); // initial conditions and x-nodes
 vector<vector<double>> SOLUTION(N, Y0); 
 
 typedef std::vector<double> GeneType;
 typedef double FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
-Individual generator(void)
+std::ostream& operator<<(std::ostream &stream, const Individual &it)
+{
+	for(auto i = it.genes.begin(); i != it.genes.end(); i++)
+	{
+		stream << *i << ' ';
+	}
+	stream << ' ' << it.fitness;
+	return stream;
+}
+
+Individual generator(std::mt19937&)
 {
 	GeneType coefs(LEN_GENES);
 	
@@ -157,17 +167,6 @@ bool stop_cond(Individual &i)
 	return i.fitness < 1e-4;
 }
 
-std::ostream& operator<<(std::ostream &stream, const Individual i)
-{
-	for(double g: i.genes)
-	{
-		stream << g << ' ';
-	}
-	stream << "  " << i.fitness;
-
-	return stream;
-}
-
 bool comparator(const Individual &lhs, const Individual &rhs)
 {
 	return lhs.fitness< rhs.fitness;
@@ -184,20 +183,20 @@ int main(void)
 
 	SOLUTION = rk4(X, Y0, func);
 
-	int max_gen = 300, pop_size = 300, elite = 2, tourn_size = 3;
+	int max_gen = 300, pop_size = 300, elite = 20, tourn_size = 3;
 	double cxpb = 0.5, mtpb = 0.2, mgpb = 0.2, mu = 0.0, sigma = 2.0;
 
 	ga::tournament<Individual> selection(tourn_size);
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_gaussian<Individual>(mu, sigma));
 
-	ga::SimpleGeneticAlgorithm<GeneType, FitnessType> ga_alg(max_gen, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::BaseGenetic<GeneType, FitnessType> ga_alg(generator, comparator, evaluate, stop_cond, selection, crossover, mutation, max_gen, pop_size, elite);
 
-	Individual best = ga_alg();
+	ga::GeneticOutput gen_stat = ga_alg();
 
-	std::cout << best << std::endl;
+	std::cout << gen_stat.best_ever << std::endl;
 
-	vector<vector<double>> sol = sol_func(best);
+	vector<vector<double>> sol = sol_func(gen_stat.best_ever);
 
 	std::ofstream file;
 	file.open("t.txt");

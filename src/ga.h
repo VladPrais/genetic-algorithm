@@ -47,9 +47,10 @@ struct GeneticOutput
 	std::vector<Individual> hall_of_fame;
 	Individual best_ever;
 
-	GeneticOutput(int gen_count, const Individual &best):
+	GeneticOutput(int gen_count, const std::vector<Individual> &hall_of_fame, const Individual &best_ever):
 		generation_count(gen_count),
-		best_ever(best)
+		hall_of_fame(hall_of_fame),
+		best_ever(best_ever)
 	{	}
 };
 
@@ -109,6 +110,7 @@ struct BaseGenetic
 		init_mt();
 
 		Population population(pop_size);
+		Population hall_of_fame(elite);
 
 		init_pop(population.begin(), population.end());
 
@@ -133,11 +135,12 @@ struct BaseGenetic
 			if (output)
 				std::cout << "Success!" << std::endl;
 
-			GeneticOutput gen_out(0, best);
+			std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
+			std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+
+			GeneticOutput gen_out(0, hall_of_fame, best);
 			return gen_out;
 		}
-
-		Population hall_of_fame(elite);
 
 		for(int iter = 1; iter <= max_gen; iter++)
 		{
@@ -172,13 +175,19 @@ struct BaseGenetic
 				if (output)
 					std::cout << "Success!" << std::endl;
 
-				GeneticOutput gen_out(iter, best);
+				std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
+				std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+
+				GeneticOutput gen_out(iter, hall_of_fame, best);
 				return gen_out;
 			}
 		}
 
 		best = get_best(population.begin(), population.end(), comparator);
-		GeneticOutput gen_out(max_gen, best);
+		std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
+		std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+		
+		GeneticOutput gen_out(max_gen, hall_of_fame, best);
 		return gen_out;
 	}
 
@@ -267,7 +276,7 @@ struct BaseGenetic
 };
 
 template <typename GeneType, typename FitnessType>
-struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
+struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 {	
 	typedef BaseIndividual<GeneType, FitnessType> Individual;
 	typedef std::vector<Individual> Population;
@@ -289,7 +298,7 @@ struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 	int threads_count;
 	thread_pool pool;
 
-	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=200, int pop_size=1000, int elite=50):
+	ParallelGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=200, int pop_size=1000, int elite=50):
 		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut, max_gen, pop_size, elite),
 		threads_count(std::thread::hardware_concurrency()),
 		pool(threads_count)
@@ -434,6 +443,38 @@ struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 			this->mt.push_back(std::mt19937(rd()));
 		}
 	}
+};
+
+template <typename GeneType, typename FitnessType>
+struct IslandGenetic: BaseGenetic<GeneType, FitnessType>
+{
+	typedef BaseIndividual<GeneType, FitnessType> Individual;
+	typedef std::vector<Individual> Population;
+	typedef typename Population::iterator Iterator;
+
+	typedef std::function<Individual(std::mt19937&)> Generator;
+	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
+	typedef std::function<FitnessType(Individual&)> Evaluate;
+	typedef std::function<bool(Individual&)> StopCond ;
+
+	typedef std::function<void(Iterator, Iterator, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(Iterator, Iterator, std::mt19937&)> Crossover;
+	typedef std::function<void(Iterator, Iterator, std::mt19937&)> Mutation;
+
+	std::atomic<int> tasks_count;
+	std::atomic<int> evaluated_counter;
+	std::mutex mutex;
+	std::condition_variable cond_var;
+	int threads_count;
+	thread_pool pool;
+
+	IslandGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=200, int pop_size=500, int elite=10):
+		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut, max_gen, pop_size, elite),
+		threads_count(std::thread::hardware_concurrency()),
+		pool(threads_count)
+	{	}
+
+
 };
 
 /*

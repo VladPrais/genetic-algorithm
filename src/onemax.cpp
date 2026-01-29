@@ -58,19 +58,18 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 3e4, max_generations = 300, elite = 50;
-	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.03;
-	int tourn_size = 3;
+	int pop_size = 1e4, max_generations = 300, elite = 50;
+	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.01;
+	int tourn_size = 4;
 
 	ga::tournament<Individual> selection(tourn_size);
 	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
 	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
 
-	ga::AdvancedGenetic<GeneType, FitnessType> g_alg(generator, comparator, evaluate, stop_cond, selection, crossover, mutation, max_generations, pop_size, elite);
-//	auto g_alg = ga::make_genetic<GeneType, FitnessType>(max_generations, pop_size, elite, generator, comparator, evaluate, stop_cond, selection, crossover, mutation);
+	ga::ParallelGenetic<GeneType, FitnessType> g_alg(generator, comparator, evaluate, stop_cond, selection, crossover, mutation, max_generations, pop_size, elite);
 
-	Individual best = g_alg().best_ever;
-	std::cout << best << std::endl;
+	ga::GeneticOutput gen_out = g_alg();
+	std::cout << gen_out.best_ever << std::endl;
 
 	return 0;
 }
