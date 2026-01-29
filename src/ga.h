@@ -89,9 +89,6 @@ struct BaseGenetic
 	bool output;
 
 	BaseGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=50, int pop_size=100, int elite=10):
-		max_gen(max_gen),
-		pop_size(pop_size),
-		elite(elite),
 		generator(gen),
 		comparator(comp),
 		evaluate(eval),
@@ -99,6 +96,9 @@ struct BaseGenetic
 		select(sel),
 		mate(mate),
 		mutate(mut),
+		max_gen(max_gen),
+		pop_size(pop_size),
+		elite(elite),
 		output(true)
 	{
 		config();
@@ -141,8 +141,11 @@ struct BaseGenetic
 
 		for(int iter = 1; iter <= max_gen; iter++)
 		{
-			std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
-			std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+			if (elite)
+			{
+				std::nth_element(population.begin(), population.begin() + elite, population.end(), comparator);
+				std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
+			}
 
 			selection_operator(population.begin(), population.end());
 			crossover_operator(population.begin(), population.end());
@@ -150,8 +153,11 @@ struct BaseGenetic
 
 			evaluated_count = evaluate_pop(population.begin(), population.end());
 
-			std::nth_element(population.begin(), population.begin() + elite, population.end(), [this](Individual &lhs, Individual &rhs){ return !this->comparator(lhs, rhs); });
-			std::copy(hall_of_fame.begin(), hall_of_fame.begin() + elite, population.begin());
+			if (elite)
+			{
+				std::nth_element(population.begin(), population.begin() + elite, population.end(), [this](Individual &lhs, Individual &rhs){ return this->comparator(rhs, lhs); });
+				std::copy(hall_of_fame.begin(), hall_of_fame.begin() + elite, population.begin());
+			}
 
 			best = get_best(population.begin(), population.end(), comparator);
 			worst = get_worst(population.begin(), population.end(), comparator);
@@ -171,6 +177,7 @@ struct BaseGenetic
 			}
 		}
 
+		best = get_best(population.begin(), population.end(), comparator);
 		GeneticOutput gen_out(max_gen, best);
 		return gen_out;
 	}
@@ -264,15 +271,16 @@ struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 {	
 	typedef BaseIndividual<GeneType, FitnessType> Individual;
 	typedef std::vector<Individual> Population;
+	typedef typename Population::iterator Iterator;
 
 	typedef std::function<Individual(std::mt19937&)> Generator;
 	typedef std::function<bool(const Individual&, const Individual&)> Comparator;
 	typedef std::function<FitnessType(Individual&)> Evaluate;
 	typedef std::function<bool(Individual&)> StopCond ;
 
-	typedef std::function<void(typename Population::iterator, typename Population::iterator, Comparator, std::mt19937&)> Selection;
-	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Crossover;
-	typedef std::function<void(typename Population::iterator, typename Population::iterator, std::mt19937&)> Mutation;
+	typedef std::function<void(Iterator, Iterator, Comparator, std::mt19937&)> Selection;
+	typedef std::function<void(Iterator, Iterator, std::mt19937&)> Crossover;
+	typedef std::function<void(Iterator, Iterator, std::mt19937&)> Mutation;
 
 	std::atomic<int> tasks_count;
 	std::atomic<int> evaluated_counter;
@@ -281,34 +289,34 @@ struct AdvancedGenetic: BaseGenetic<GeneType, FitnessType>
 	int threads_count;
 	thread_pool pool;
 
-	public:
-
-	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int pop_size=1000, int max_gen=200, int elite=50):
-		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut, pop_size, max_gen, elite),
+	AdvancedGenetic(Generator gen, Comparator comp, Evaluate eval, StopCond stop, Selection sel, Crossover mate, Mutation mut, int max_gen=200, int pop_size=1000, int elite=50):
+		BaseGenetic<GeneType, FitnessType>(gen, comp, eval, stop, sel, mate, mut, max_gen, pop_size, elite),
 		threads_count(std::thread::hardware_concurrency()),
 		pool(threads_count)
 	{	}
 
-	void init_pop(Population &pop)
+	void init_pop(Iterator begin, Iterator end) override
 	{
 		tasks_count = threads_count;
 		int h = this->pop_size / threads_count;
 		int r = this->pop_size % threads_count;
-		int d = 0;
+		int chunk = 0;
 
 		for(int i = 0; i < threads_count; i++)
 		{
 			int t = i < r ? 1 : 0;
-			auto begin = pop.begin() + d;
-			auto end = pop.begin() + d + t + h;
+			Iterator local_begin = begin + chunk;
+			Iterator local_end = begin + chunk + t + h;
 
-			pool.push([this, begin, end](){
-				std::generate(begin, end, this->generator);
+			pool.push([this, local_begin, local_end, i](){
+				std::generate(local_begin, local_end, [this, i](){ return this->generator(this->mt[i]); });
 				if (!(--tasks_count))
 				{
 					cond_var.notify_one();
 				}
 			});
+
+			chunk += t + h;
 		}
 
 		std::unique_lock<std::mutex> locker(mutex);

@@ -12,7 +12,7 @@ typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
 std::uniform_int_distribution dist(0, 1);
 
-const size_t LEN_GENES = 1e2;
+const size_t LEN_GENES = 6e2;
 
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
 Individual generator(std::mt19937 &engine)
@@ -58,7 +58,7 @@ bool comparator(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 1e5, max_generations = 300, elite = 0;
+	int pop_size = 3e4, max_generations = 300, elite = 50;
 	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.03;
 	int tourn_size = 3;
 
