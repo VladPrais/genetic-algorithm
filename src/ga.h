@@ -107,19 +107,15 @@ struct BaseGenetic
 
 	GeneticOutput<Individual> operator()(void)
 	{
-		init_mt();
-
 		Population population(pop_size);
 		Population hall_of_fame(elite);
 
+		/*
 		init_pop(population.begin(), population.end());
-
-		if (output)
-		{
-			std::cout << pop_size << " individuals were initialized" << std::endl;
-		}
-
 		int evaluated_count = evaluate_pop(population.begin(), population.end());
+		*/
+
+		int evaluated_count = genetic_init(population.begin(), population.end());
 
 		Individual best = get_best(population.begin(), population.end(), comparator);
 		Individual worst = get_worst(population.begin(), population.end(), comparator);
@@ -150,11 +146,13 @@ struct BaseGenetic
 				std::copy(population.begin(), population.begin() + elite, hall_of_fame.begin());
 			}
 
+			/*
 			selection_operator(population.begin(), population.end());
 			crossover_operator(population.begin(), population.end());
 			mutation_operator(population.begin(), population.end());
+			*/
 
-			evaluated_count = evaluate_pop(population.begin(), population.end());
+			evaluated_count = genetic_step(population.begin(), population.end());
 
 			if (elite)
 			{
@@ -191,11 +189,30 @@ struct BaseGenetic
 		return gen_out;
 	}
 
-	virtual int evaluate_pop(Iterator begin, Iterator end)
+
+	virtual int genetic_init(Iterator begin, Iterator end)
+	{
+		std::random_device rd;
+		mt.push_back(std::mt19937(rd()));
+
+		std::generate(begin, end, [this](){ return generator(mt[0]); });
+		return evaluate_slice(begin, end);
+	}
+
+	virtual int genetic_step(Iterator begin, Iterator end)
+	{
+		select(begin, end, comparator, mt[0]);
+		mate(begin, end, mt[0]);
+		mutate(begin, end, mt[0]);
+
+		return evaluate_slice(begin, end);
+	}
+
+	int evaluate_slice(Iterator slice_begin, Iterator slice_end)
 	{
 		int count = 0;
 
-		for(Iterator it = begin; it != end; it++)
+		for(Iterator it = slice_begin; it != slice_end; it++)
 		{
 			if(!it->is_valid())
 			{
@@ -207,6 +224,7 @@ struct BaseGenetic
 		return count;
 	}
 
+	/*
 	virtual void selection_operator(Iterator begin, Iterator end)
 	{
 		select(begin, end, comparator, mt[0]);
@@ -221,17 +239,7 @@ struct BaseGenetic
 	{
 		mutate(begin, end, mt[0]);
 	}
-
-	virtual void init_pop(Iterator begin, Iterator end)
-	{
-		std::generate(begin, end, [this](){ return generator(mt[0]); });
-	}
-
-	virtual void init_mt(void)
-	{
-		std::random_device rd;
-		mt.push_back(std::mt19937(rd()));
-	}
+	*/
 
 	static void print_head(void)
 	{
@@ -292,7 +300,7 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 	typedef std::function<void(Iterator, Iterator, std::mt19937&)> Mutation;
 
 	std::atomic<int> tasks_count;
-	std::atomic<int> evaluated_counter;
+	std::atomic<int> evaluated_count;
 	std::mutex mutex;
 	std::condition_variable cond_var;
 	int threads_count;
@@ -304,9 +312,18 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 		pool(threads_count)
 	{	}
 
-	void init_pop(Iterator begin, Iterator end) override
+	int genetic_init(Iterator begin, Iterator end) override
 	{
+		std::random_device rd;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			this->mt.push_back(std::mt19937(rd()));
+		}
+
+		evaluated_count = 0;
 		tasks_count = threads_count;
+
 		int h = this->pop_size / threads_count;
 		int r = this->pop_size % threads_count;
 		int chunk = 0;
@@ -319,6 +336,7 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 
 			pool.push([this, local_begin, local_end, i](){
 				std::generate(local_begin, local_end, [this, i](){ return this->generator(this->mt[i]); });
+				evaluated_count += this->evaluate_slice(local_begin, local_end);
 				if (!(--tasks_count))
 				{
 					cond_var.notify_one();
@@ -330,8 +348,48 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 
 		std::unique_lock<std::mutex> locker(mutex);
 		cond_var.wait(locker, [this](){ return !tasks_count; });
+
+		return evaluated_count;
 	}
 
+	int genetic_step(Iterator begin, Iterator end) override
+	{
+		this->select(begin, end, this->comparator, this->mt[0]);
+
+		tasks_count = threads_count;
+		evaluated_count = 0;
+
+		int h = this->pop_size / threads_count;
+		int r = this->pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+
+			Iterator local_begin = begin + chunk;
+			Iterator local_end = begin + chunk + h + t;
+
+			pool.push([this, local_begin, local_end, i](){
+				this->mate(local_begin, local_end, this->mt[i]);
+				this->mutate(local_begin, local_end, this->mt[i]);
+				evaluated_count += this->evaluate_slice(local_begin, local_end);
+				if (!(--tasks_count))
+				{
+					cond_var.notify_one();
+				}
+			});
+
+			chunk += h + t;
+		}
+
+		std::unique_lock<std::mutex> locker(mutex);
+		cond_var.wait(locker, [this](){ return !tasks_count; });
+
+		return evaluated_count;
+	}
+
+	/*
 	int evaluate_pop(typename Population::iterator begin, typename Population::iterator end) override
 	{
 		evaluated_counter = 0;
@@ -371,8 +429,10 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 
 		return evaluated_counter;
 	}
+	*/
 
-	void crossover_operator(typename Population::iterator begin, typename Population::iterator end) override
+	/*
+	void crossover_operator(typename Population::iterator begin, typename Population::iterator end)
 	{
 		tasks_count = threads_count;
 
@@ -403,7 +463,7 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
 	
-	void mutation_operator(typename Population::iterator begin, typename Population::iterator end) override
+	void mutation_operator(typename Population::iterator begin, typename Population::iterator end)
 	{
 		tasks_count = threads_count;
 
@@ -433,16 +493,7 @@ struct ParallelGenetic: BaseGenetic<GeneType, FitnessType>
 		std::unique_lock<std::mutex> locker(mutex);
 		cond_var.wait(locker, [this](){ return !tasks_count; });
 	}
-
-	void init_mt(void) override
-	{
-		std::random_device rd;
-
-		for(int i = 0; i < threads_count; i++)
-		{
-			this->mt.push_back(std::mt19937(rd()));
-		}
-	}
+	*/
 };
 
 template <typename GeneType, typename FitnessType>
