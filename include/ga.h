@@ -79,6 +79,7 @@ struct AbstractGenetic
 	Evaluate evaluate;
 	StopCond stopcond;
 
+	std::mt19937 random_generator;
 	std::uniform_real_distribution<double> pb_dist;
 
 	AbstractGenetic(Generate gen, Compare comp, Evaluate eval, StopCond stop):
@@ -87,16 +88,7 @@ struct AbstractGenetic
 		evaluate(eval),
 		stopcond(stop),
 		pb_dist(0.0, 1.0),
-		engine(std::random_device{}())
-	{	}
-
-	AbstractGenetic(Generate gen, Compare comp, Evaluate eval, StopCond stop, Random eng):
-		generate(gen),
-		compare(comp),
-		evaluate(eval),
-		stopcond(stop),
-		pb_dist(0.0, 1.0),
-		engine(eng)
+		random_generator(std::random_device{}())
 	{	}
 
 	template <typename Crossover>
@@ -114,7 +106,7 @@ struct AbstractGenetic
 
 	double get_random_value(void)
 	{
-		return this->pb_dist(this->engine);
+		return this->pb_dist(this->random_generator);
 	}
 
 	template <typename Population>
@@ -143,20 +135,13 @@ struct AbstractGenetic
 		return t.count();
 	}
 
-	void take_elite(Population& population, Population& elites, size_t elite_size)
-	{
-		std::nth_element(population.begin(), population.end() + elite_size, this->compare);
-		std::copy(population.begin(), population.begin() + elite_size, elites.begin());
-	}
-
 	template <typename Selection, typename Crossover, typename Mutation>
 	Individual operator()(size_t gen_limit, size_t pop_size, size_t elite_size, double cxpb, double mtpb, Selection selecting, Crossover cross, Mutation mutate)
 	{
 		statistics stat;
-
 		auto time_start = time();
 
-		Population population(pop_size), elites(elite_size);
+		Population population(pop_size), offspring(pop_size);
 		std::generate(population.begin(), population.end(), [this](){ return this->generate(); });
 
 		int eval_count = static_cast<T*>(this) -> evaluating(population);
@@ -169,9 +154,14 @@ struct AbstractGenetic
 
 		for(int i = 0; i < gen_limit; i++)
 		{
-			selecting(population);
-			static_cast<T*>(this) -> crossing(population, cross, cxpb);
-			static_cast<T*>(this) -> mutating(population, mutate, mtpb);
+			std::nth_element(population.begin(), population.begin() + elite_size, population.end(), this->compare);
+			std::copy(population.begin(), population.begin() + elite_size, offspring.begin());
+
+			selecting(population.begin(), population.end(), offspring.begin() + elite_size, offspring.end());
+			static_cast<T*>(this) -> crossing(offspring.begin() + elite_size, offspring.end(), cross, cxpb);
+			static_cast<T*>(this) -> mutating(offspring.begin() + elite_size, offspring.end(), mutate, mtpb);
+
+			std::swap(population, offspring);
 
 			eval_count = static_cast<T*>(this) -> evaluating(population);
 			best = get_best(population);
@@ -203,36 +193,36 @@ struct AbstractGenetic
 template <typename T, typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
 struct AbstractCommonGenetic: AbstractGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>
 {
-	typedef typename AbstractGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>:: Population Population;
+	typedef typename AbstractGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>::Population Population;
 
 	AbstractCommonGenetic(Generate gen, Compare comp, Evaluate eval, StopCond stop):
 		AbstractGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>(gen, comp, eval, stop)
 	{	}
 
-	template <typename Crossover>
-	void crossing(Population& population, Crossover cross, double cxpb)
+	template <typename Iterator, typename Crossover>
+	void crossing(Iterator begin, Iterator end, Crossover cross, double cxpb)
 	{
-		size_t pop_size = population.size();
+		size_t pop_size = std::distance(begin, end);
 
 		for(int i = 0; i < pop_size - 1; i += 2)
 		{
 			if(this->get_random_value() < cxpb)
 			{
-				cross(population[i], population[i + 1]);
+				cross(*(begin + i), *(begin + i + 1));
 			}
 		}
 	}
 
-	template <typename Mutation>
-	void mutating(Population& population, Mutation mutate, double mtpb)
+	template <typename Iterator, typename Mutation>
+	void mutating(Iterator begin, Iterator end, Mutation mutate, double mtpb)
 	{
-		size_t pop_size = population.size();
+		size_t pop_size = std::distance(begin, end);
 
 		for(int i = 0; i < pop_size; i++)
 		{
 			if(this->get_random_value() < mtpb)
 			{
-				mutate(population[i]);
+				mutate(*(begin + i));
 			}
 		}
 	}
@@ -263,15 +253,9 @@ struct CommonGenetic: AbstractCommonGenetic<CommonGenetic<Individual, Generate, 
 };
 
 template <typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
-CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond > make_common(Generate g, Compare c, Evaluate e, StopCond s)
+CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond> make_common(Generate g, Compare c, Evaluate e, StopCond s)
 {
 	return CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s);
-};
-
-template <typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond, typename RandomEngine>
-CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond, RandomEngine> make_common(Generate g, Compare c, Evaluate e, StopCond s, RandomEngine &r)
-{
-	return CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond, RandomEngine>(g, c, e, s, r);
 };
 
 /*
@@ -518,24 +502,23 @@ struct Tournament
 };
 */
 
-template <typename Population, typename Compare>
-void sel_tournament(Population& population, size_t k, Compare compare, Generator& generator, size_t tourn_size = 3)
+template <typename Iterator, typename Compare>
+void sel_tournament(Iterator begin_pop, Iterator end_pop, Iterator begin_off, Iterator end_off, Compare compare, std::mt19937& generator, size_t tourn_size = 3)
 {
-	size_t pop_size = population.size();
+	size_t pop_size = std::distance(begin_pop, end_pop), off_size = std::distance(begin_off, end_off);
 	std::uniform_int_distribution<int> dist(0, pop_size - 1);
-	Population aspirants(pop_size);
-	Population temp(tourn_size);
+	Iterator best, choice;
 
-	for(int i = 0; i < pop_size; i++)
+	for(size_t i = 0; i < off_size; i++)
 	{
-		for(int i = 0; i < tourn_size; i++)
+		best = begin_pop + dist(generator);
+		for(size_t j = 1; j < tourn_size; j++)
 		{
-			temp[i] = population[dist(generator)];
+			choice = begin_pop + dist(generator);
+			best = compare(*best, *choice) ? best : choice;
 		}
-		aspirants[i] = *std::min_element(temp.begin(), temp.end(), compare);
+		*(begin_off + i) = *best;
 	}
-
-	population = std::move(aspirants);
 }
 
 /*

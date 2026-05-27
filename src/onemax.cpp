@@ -10,66 +10,84 @@ typedef std::vector<int> GeneType;
 typedef int FitnessType;
 typedef ga::BaseIndividual<GeneType, FitnessType> Individual;
 
+std::random_device rd;
+std::mt19937 mt(rd());
 std::uniform_int_distribution dist(0, 1);
 
-const size_t LEN_GENES = 6e2;
+const size_t LEN_GENES = 1e1;
 
 // The function generates the one Individual. Will be used in Genetic Algorithm to create initial population.
-Individual generator(std::mt19937 &engine)
+Individual generate(void)
 {
 	GeneType v(LEN_GENES);
-
-	std::generate(v.begin(), v.end(), [&engine](){ return dist(engine); });
-
-	Individual I(v);
-
-	return I;
+	std::generate(v.begin(), v.end(), [](){ return dist(mt); });
+	return Individual(v);
 }
 
 // The function to get fitness value.
 FitnessType evaluate(Individual &i)
 {
-	return std::accumulate(i.genes.begin(), i.genes.end(), 0);
+	return std::accumulate(i.get_genes().begin(), i.get_genes().end(), 0);
 }
 
 // Stop conditions. True if stop else False.
 bool stop_cond(Individual& i)
 {
-	if(i.fitness >= LEN_GENES)
+	if(i.get_fitness() >= LEN_GENES)
 		return true;
 	return false;
 }
 
 std::ostream& operator<<(std::ostream &stream, const Individual &i)
 {
-	for(auto g: i.genes)
+	for(auto g: i.get_genes())
 	{
 		stream << g << ' ';
 	}
-	stream << "  " << i.fitness;
+	stream << "  " << i.get_fitness();
 
 	return stream;
 }
 
-bool comparator(const Individual &lhs, const Individual &rhs)
+bool compare(const Individual &lhs, const Individual &rhs)
 {
-	return lhs.fitness > rhs.fitness;
+	return lhs.get_fitness() > rhs.get_fitness();
 }
 
 int main(void)
 {
-	int pop_size = 1e4, max_generations = 300, elite = 50;
+	/*
+	int pop_size = 1e3, gen_limit = 5e3, elite = 2;
 	double cxpb = 0.6, mtpb = 0.2, mgpb = 0.01;
-	int tourn_size = 4;
+	int tourn_size = 3;
 
-	ga::tournament<Individual> selection(tourn_size);
-	ga::crossover<Individual> crossover(cxpb, ga::cx_one_point<Individual>());
-	ga::mutation<Individual> mutation(mtpb, mgpb, ga::mut_inverse<Individual>());
+	std::mt19937 engine(std::random_device{}());
+	auto sel = [tourn_size, &engine](auto b1, auto e1, auto b2, auto e2){ sel_tournament(b1, e1, b2, e2, compare, engine, tourn_size); };
+	auto cross = [&engine](auto lhs, auto rhs){ cross_one_point(lhs, rhs, engine); };
+	auto mut = [&engine](auto i){ mut_bit_not(i, engine); };
 
-	ga::ParallelGenetic<GeneType, FitnessType> g_alg(generator, comparator, evaluate, stop_cond, selection, crossover, mutation, max_generations, pop_size, elite);
+	auto g_alg = ga::make_common<Individual>(generate, compare, evaluate, stop_cond);
+	Individual best = g_alg(gen_limit, pop_size, elite, cxpb, mtpb, sel, cross, mut);
 
-	ga::GeneticOutput gen_out = g_alg();
-	std::cout << gen_out.best_ever << std::endl;
+	std::cout << best << std::endl;
+	*/
+
+	Individual i = generate();
+	i.set_fitness(evaluate(i));
+	std::cout << i << std::endl;
+
+	ga::mut_bit_not<Individual>(i, mt);
+	i.set_fitness(evaluate(i));
+	std::cout << i << std::endl;
+
+	Individual i2 = generate();
+	i2.set_fitness(evaluate(i2));
+	std::cout << i2 << std::endl;
+
+	std::cout << "---" << std::endl;
+
+	cross_one_point(i, i2, mt);
+	std::cout << i << std::endl << i2 << std::endl;
 
 	return 0;
 }
