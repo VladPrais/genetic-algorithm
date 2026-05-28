@@ -56,38 +56,17 @@ bool compare(const Individual &lhs, const Individual &rhs)
 
 int main(void)
 {
-	int pop_size = 3e2, gen_limit = 1e2, elite = 5;
-	double cxpb = 0.4, mtpb = 0.2, mgpb = 0.01;
+	int pop_size = 3e2, gen_limit = 1e2, elite = 10;
+	double cxpb = 0.5, mtpb = 0.2, mgpb = 0.01;
 	int tourn_size = 3;
 
 	std::mt19937 engine(std::random_device{}());
-	auto sel = [tourn_size, &engine](auto b1, auto e1, auto b2, auto e2, auto comp){ sel_tournament(b1, e1, b2, e2, comp, engine, tourn_size); };
+	auto sel = [tourn_size, &engine](auto b1, auto e1, auto b2, auto e2){ sel_tournament(b1, e1, b2, e2, compare, engine, tourn_size); };
 	auto cross = [&engine](auto &lhs, auto &rhs){ cross_one_point(lhs, rhs, engine); };
 	auto mut = [&engine, mgpb](auto &i){ mut_bit_not_uniform(i, engine, mgpb); };
 
-	auto g_alg = ga::make_common<Individual>(generate, compare, evaluate, stop_cond);
-	Individual best = g_alg(gen_limit, pop_size, elite, cxpb, mtpb, sel, cross, mut);
-
-	std::cout << best << std::endl;
-
-	/*
-	Individual i = generate();
-	i.set_fitness(evaluate(i));
-	std::cout << i << std::endl;
-
-	ga::mut_bit_not<Individual>(i, mt);
-	i.set_fitness(evaluate(i));
-	std::cout << i << std::endl;
-
-	Individual i2 = generate();
-	i2.set_fitness(evaluate(i2));
-	std::cout << i2 << std::endl;
-
-	std::cout << "---" << std::endl;
-
-	cross_one_point(i, i2, mt);
-	std::cout << i << std::endl << i2 << std::endl;
-	*/
+	auto alg = ga::make_common<Individual>(generate, compare, evaluate, stop_cond);
+	Individual best = alg(gen_limit, pop_size, elite, cxpb, mtpb, sel, cross, mut);
 
 	return 0;
 }

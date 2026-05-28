@@ -165,7 +165,7 @@ struct AbstractGenetic
 			std::nth_element(population.begin(), population.begin() + elite_size, population.end(), this->compare);
 			std::copy(population.begin(), population.begin() + elite_size, offspring.begin());
 
-			selecting(population.begin(), population.end(), offspring.begin() + elite_size, offspring.end(), this->compare);
+			selecting(population.begin(), population.end(), offspring.begin() + elite_size, offspring.end());
 			static_cast<T*>(this) -> crossing(offspring.begin() + elite_size, offspring.end(), cross, cxpb);
 			static_cast<T*>(this) -> mutating(offspring.begin() + elite_size, offspring.end(), mutate, mtpb);
 
@@ -265,6 +265,86 @@ template <typename Individual, typename Generate, typename Compare, typename Eva
 CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond> make_common(Generate g, Compare c, Evaluate e, StopCond s)
 {
 	return CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s);
+}
+
+template <typename T, typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
+struct AbstractAdvancedGenetic: AbstractCommonGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>
+{
+	typedef typename AbstractGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>::Population Population;
+
+	std::mutex mtx;
+	std::condition_variable cond_var;
+	size_t threads_count;
+	thread_pool pool;
+
+	AbstractAdvancedGenetic(Generate g, Compare c, Evaluate e, StopCond s):
+		AbstractCommonGenetic<T, Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s),
+		threads_count(std::thread::hardware_concurrency()),
+		pool(threads_count)
+	{	}
+
+	size_t evaluating(Population& population)
+	{
+		std::atomic<size_t> eval_count {0};
+		std::atomic<size_t> tasks_count {threads_count};
+
+		int pop_size = population.size();
+
+		int h = pop_size / threads_count;
+		int r = pop_size % threads_count;
+		int chunk = 0;
+
+		for(int i = 0; i < threads_count; i++)
+		{
+			int t = i < r ? 1 : 0;
+			auto local_begin = population.begin() + chunk;
+			auto local_end = population.begin() + chunk + t + h;
+
+			auto task = [this, local_begin, local_end, &eval_count, &tasks_count]()
+			{
+				size_t local_eval_count = 0;
+
+				std::for_each(local_begin, local_end, [this, &local_eval_count](Individual& i)
+						{
+							if(!i.is_valid())
+							{
+								i.fitness = this->evaluate(i);
+								i.valid = true;
+								local_eval_count++;
+							}
+						});
+				eval_count += local_eval_count;
+				if(!(--tasks_count))
+				{
+					std::unique_lock<std::mutex> locker(this->mtx);
+					this->cond_var.notify_one();
+				}
+			};
+			pool.push(task);
+
+			chunk += t + h;
+		}
+
+		std::unique_lock<std::mutex> locker(mtx);
+		cond_var.wait(locker, [&tasks_count](){ return !tasks_count; });
+
+		return static_cast<size_t>(eval_count);
+	}
+
+};
+
+template <typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
+struct AdvancedGenetic: AbstractAdvancedGenetic<AdvancedGenetic<Individual, Generate, Compare, Evaluate, StopCond>, Individual, Generate, Compare, Evaluate, StopCond>
+{
+	AdvancedGenetic(Generate g, Compare c, Evaluate e, StopCond s):
+		AbstractAdvancedGenetic<AdvancedGenetic<Individual, Generate, Compare, Evaluate, StopCond>, Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s)
+	{	}
+};
+
+template <typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
+AdvancedGenetic<Individual, Generate, Compare, Evaluate, StopCond> make_advanced(Generate g, Compare c, Evaluate e, StopCond s)
+{
+	return AdvancedGenetic<Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s);
 }
 
 /*
@@ -563,7 +643,7 @@ void mut_bit_not(Individual& object, Generator& generator)
 }
 
 template <typename Individual, typename Generator>
-void mut_bit_not_uniform(Individual& object, Generator& generator, double mgpb)
+void mut_bit_not_uniform(Individual& object, Generator& generator, double mgpb = 0.01)
 {
 	size_t len_genes = object.genes.size();
 	std::uniform_real_distribution<double> pb(0.0, 1.0);
@@ -575,6 +655,16 @@ void mut_bit_not_uniform(Individual& object, Generator& generator, double mgpb)
 			object.genes[i] = !object.genes[i];
 		}
 	}
+}
+
+template <typename Individual, typename Generator>
+void mut_normal(Individual& object, Generator& generator, double mu = 0.0, double sigma = 1.0)
+{
+	size_t len_genes = object.genes.size();
+	std::uniform_int_distribution<int> dist(0, len_genes - 1);
+	std::normal_distribution<double> norm(mu, sigma);
+	size_t i = dist(generator);
+	object.genes[i] += norm(generator);
 }
 
 } // namespace ga
