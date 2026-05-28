@@ -13,13 +13,11 @@
 namespace ga {
 
 template <typename GeneType, typename FitnessType>
-class BaseIndividual
+struct BaseIndividual
 {
 	GeneType genes;
 	FitnessType fitness;
 	bool valid;
-
-	public:
 
 	BaseIndividual():
 		valid(false)
@@ -30,17 +28,16 @@ class BaseIndividual
 		genes(genes)
 	{	}
 
+	/*
 	void set_genes(GeneType &new_genes)
 	{
 		genes = new_genes;
 		valid = false;
 	}
 
-	//void evaluate(std::function<FitnessType(BaseIndividual<GeneType, FitnessType> &i)> fit_func)
 	void set_fitness(FitnessType new_fitness)
 	{
 		fitness = new_fitness;
-		//fitness = fit_func(*this);
 		valid = true;
 	}
 
@@ -53,6 +50,7 @@ class BaseIndividual
 	{
 		return fitness;
 	}
+	*/
 
 	bool is_valid(void) const
 	{
@@ -60,12 +58,12 @@ class BaseIndividual
 	}
 };
 
+template <typename FitnessType>
 struct statistics
 {
-	void operator()(size_t eval_count)
-	{
-		std::cout << eval_count << std::endl;
-	}
+	std::vector<FitnessType> bests;
+	std::vector<FitnessType> worsts;
+	size_t generations;
 };
 
 template <typename T, typename Individual, typename Generate, typename Compare, typename Evaluate, typename StopCond>
@@ -135,50 +133,55 @@ struct AbstractGenetic
 		return t.count();
 	}
 
+	template <typename FitnessType>
+	static void print_stat(size_t gen, size_t eval_count, const FitnessType& bad, const FitnessType& good)
+	{
+		char ch = '\t';
+		std::cout << gen << ch << eval_count << ch << bad << ch << good << std::endl;
+	}
+
 	template <typename Selection, typename Crossover, typename Mutation>
 	Individual operator()(size_t gen_limit, size_t pop_size, size_t elite_size, double cxpb, double mtpb, Selection selecting, Crossover cross, Mutation mutate)
 	{
-		statistics stat;
 		auto time_start = time();
 
 		Population population(pop_size), offspring(pop_size);
 		std::generate(population.begin(), population.end(), [this](){ return this->generate(); });
 
 		int eval_count = static_cast<T*>(this) -> evaluating(population);
+
 		Individual best = get_best(population);
+		Individual worst = get_worst(population);
+
+		print_stat(0, eval_count, worst.fitness, best.fitness);
 
 		if(stopcond(best))
 		{
 			goto finish;
 		}
 
-		for(int i = 0; i < gen_limit; i++)
+		for(int i = 1; i <= gen_limit; i++)
 		{
 			std::nth_element(population.begin(), population.begin() + elite_size, population.end(), this->compare);
 			std::copy(population.begin(), population.begin() + elite_size, offspring.begin());
 
-			selecting(population.begin(), population.end(), offspring.begin() + elite_size, offspring.end());
+			selecting(population.begin(), population.end(), offspring.begin() + elite_size, offspring.end(), this->compare);
 			static_cast<T*>(this) -> crossing(offspring.begin() + elite_size, offspring.end(), cross, cxpb);
 			static_cast<T*>(this) -> mutating(offspring.begin() + elite_size, offspring.end(), mutate, mtpb);
 
 			std::swap(population, offspring);
 
 			eval_count = static_cast<T*>(this) -> evaluating(population);
+
 			best = get_best(population);
+			worst = get_worst(population);
+
+			print_stat(i, eval_count, worst.fitness, best.fitness);
 
 			if(stopcond(best))
 			{
-				goto finish;
+				break;
 			}
-
-			/*
-			for(int i: best.get_genes())
-			{
-				std::cout << i << ' ';
-			}
-			std::cout << best.get_fitness() << std::endl;
-			*/
-			stat(i);
 		}
 
 		finish:
@@ -208,7 +211,10 @@ struct AbstractCommonGenetic: AbstractGenetic<T, Individual, Generate, Compare, 
 		{
 			if(this->get_random_value() < cxpb)
 			{
-				cross(*(begin + i), *(begin + i + 1));
+				cross(*begin, *(begin + 1));
+				begin->valid = false;
+				(begin + 1)->valid = false;
+				begin++;
 			}
 		}
 	}
@@ -222,7 +228,9 @@ struct AbstractCommonGenetic: AbstractGenetic<T, Individual, Generate, Compare, 
 		{
 			if(this->get_random_value() < mtpb)
 			{
-				mutate(*(begin + i));
+				mutate(*begin);
+				begin->valid = false;
+				begin++;
 			}
 		}
 	}
@@ -234,7 +242,8 @@ struct AbstractCommonGenetic: AbstractGenetic<T, Individual, Generate, Compare, 
 		std::for_each(population.begin(), population.end(), [&eval_count, this](Individual& i){
 			if(!i.is_valid())
 			{
-				i.set_fitness(this->evaluate(i));
+				i.fitness = this->evaluate(i);
+				i.valid = true;
 				eval_count++;
 			} 
 		});
@@ -256,7 +265,7 @@ template <typename Individual, typename Generate, typename Compare, typename Eva
 CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond> make_common(Generate g, Compare c, Evaluate e, StopCond s)
 {
 	return CommonGenetic<Individual, Generate, Compare, Evaluate, StopCond>(g, c, e, s);
-};
+}
 
 /*
 template <typename GeneType, typename FitnessType>
@@ -517,7 +526,8 @@ void sel_tournament(Iterator begin_pop, Iterator end_pop, Iterator begin_off, It
 			choice = begin_pop + dist(generator);
 			best = compare(*best, *choice) ? best : choice;
 		}
-		*(begin_off + i) = *best;
+		*begin_off = *best;
+		begin_off++;
 	}
 }
 
@@ -528,18 +538,15 @@ void sel_tournament(Iterator begin_pop, Iterator end_pop, Iterator begin_off, It
 template <typename Individual, typename Generator>
 void cross_one_point(Individual &lhs, Individual &rhs, Generator& generator)
 {
-	int size = std::min(lhs.get_genes().size(), rhs.get_genes().size());
+	int size = std::min(lhs.genes.size(), rhs.genes.size());
 	std::uniform_int_distribution<int> dist(1, size - 2);
 	int cross_point = dist(generator);
-	auto g1 = lhs.get_genes(), g2 = rhs.get_genes();
+	//auto g1 = lhs.get_genes(), g2 = rhs.get_genes();
 
 	for(int i = 0; i < cross_point; i++)
 	{
-		std::swap(g1[i], g2[i]);
+		std::swap(lhs.genes[i], rhs.genes[i]);
 	}
-
-	lhs.set_genes(g1);
-	rhs.set_genes(g2);
 }
 
 /*
@@ -549,12 +556,25 @@ void cross_one_point(Individual &lhs, Individual &rhs, Generator& generator)
 template <typename Individual, typename Generator>
 void mut_bit_not(Individual& object, Generator& generator)
 {
-	size_t len_genes = object.get_genes().size();
+	size_t len_genes = object.genes.size();
 	std::uniform_int_distribution<int> dist(0, len_genes - 1);
 	size_t i = dist(generator);
-	auto g = object.get_genes();
-	g[i] = !g[i];
-	object.set_genes(g);
+	object.genes[i] = !object.genes[i];
+}
+
+template <typename Individual, typename Generator>
+void mut_bit_not_uniform(Individual& object, Generator& generator, double mgpb)
+{
+	size_t len_genes = object.genes.size();
+	std::uniform_real_distribution<double> pb(0.0, 1.0);
+
+	for(size_t i = 0; i < len_genes; i++)
+	{
+		if(pb(generator) < mgpb)
+		{
+			object.genes[i] = !object.genes[i];
+		}
+	}
 }
 
 } // namespace ga
